@@ -44,7 +44,6 @@ class Primitive(IntEnum):
 class Struct:
     name: str
     is_union: bool
-    direction: Direction
     fields: list["Field"]
 
 
@@ -53,3 +52,18 @@ class Field:
     name: str
     type: Union[Struct, Primitive]
     length: int
+
+@dataclass
+class Channel:
+    name: str
+    type: Struct
+    add_msgs: int
+    eventfd: bool
+    info: str
+
+@dataclass
+class Group:
+    name: str
+    c2s: list[Channel]
+    s2c: list[Channel]
+    info: str
