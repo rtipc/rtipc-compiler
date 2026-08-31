@@ -1,6 +1,6 @@
 from enum import IntEnum
-from protocol import Struct, Field, Primitive
-
+from protocol import Group, Channel, Struct, Field, Primitive
+from utils import Indent, IndentStyle
 STRUCT_END = 0x80
 
 FIELD_TYPE_MASK = 0x03
@@ -26,8 +26,22 @@ UINT8_MAX = 0xFF
 UINT16_MAX = 0xFFFF
 UINT32_MAX = 0xFFFFFFFF
 
+def str_primitive(primitive: int) -> str:
+    return str(Primitive(primitive).name)
 
-def enc_length(length: int) -> (int, bytes):
+
+def enc_name(name: str) -> bytes:
+    return len(name).to_bytes(1, "little") + name.encode("utf-8")
+
+
+def dec_name(info: bytearray) -> str:
+    name_length = info[0]
+    name = info[1:name_length + 1].decode("utf-8")
+    del info[: name_length + 1]
+    return name
+
+
+def enc_array_length(length: int) -> (int, bytes):
     if length <= 1:
         return (ArrayLengthSize.NONE, b"")
     length = length - 1
@@ -39,13 +53,25 @@ def enc_length(length: int) -> (int, bytes):
         return (ArrayLengthSize.FOUR, length.to_bytes(4, "little"))
 
 
-def enc_name(name: str) -> bytes:
-    return len(name).to_bytes(1, "little") + name.encode("utf-8")
+def dec_array_length(type: int, info: bytearray) -> int:
+    match type & FIELD_LENGTH_MASK:
+        case ArrayLengthSize.NONE:            
+            length = 0
+        case ArrayLengthSize.ONE:
+            length = info[0]
+            del info[: 1]
+        case ArrayLengthSize.TWO:
+            length = int.from_bytes(info[0:2], byteorder="little")
+            del info[: 2]
+        case ArrayLengthSize.FOUR:
+            length = int.from_bytes(info[0:4], byteorder="little")
+            del info[: 4]
+    return length + 1
 
 
 def enc_field(field: Field, close_struct: bool) -> bytes:
     name = enc_name(field.name)
-    (type, length) = enc_length(field.length)
+    (type, length) = enc_array_length(field.length)
 
     if close_struct:
         type |= STRUCT_END
@@ -62,8 +88,40 @@ def enc_field(field: Field, close_struct: bool) -> bytes:
     return name + type.to_bytes(1, "little") + length + tail
 
 
+def dump_field(info: bytearray, indent: Indent) -> str:
+    out = ""
+    name = dec_name(info)
+    type = info[0]
+    del info[: 1]
+    array_length = dec_array_length(type, info)
+
+    if array_length == 1:
+        array = ""
+    else:
+        array = "[" + str(array_length) + "]"
+
+    if type & STRUCT_END:
+        indent.decrease()
+        out += str(indent) + "}" + "\n"
+        return out
+
+    out += str(indent) + str(name) + array + ": "
+
+    match type & FIELD_TYPE_MASK:
+        case FieldType.PRIMITIVE:
+            out += str_primitive(info[0])
+            del info[0 : 1]
+        case FieldType.STRUCT:
+            out += "struct {"
+            indent.increase()
+        case FieldType.UNION:
+            out += "union {"
+            indent.increase()
+    return out + "\n"
+
+
 def enc_struct(struct: Struct) -> bytes:
-    info = b""
+    info = b''
     close_struct = False
     for field in struct.fields:
         info += enc_field(field, close_struct)
@@ -74,73 +132,42 @@ def enc_struct(struct: Struct) -> bytes:
     return info
 
 
-def create_info(struct: Struct) -> bytes:
-    info = bytes()
-    for field in struct.fields:
-        info += enc_field(field, False)
-    return info
+def add_group_info(group: Group):
+    group.info = enc_name(group.name)
+    for channel in group.c2s:
+        channel.info = enc_name(channel.name) + enc_struct(channel.type)
+        print(channel.info)
+    for channel in group.s2c:
+        channel.info = enc_name(channel.name) + enc_struct(channel.type)
+        print(channel.info)
 
 
-def indent(n: int) -> str:
-    return "\t" * n
+def dump_channel(info: bytearray, indent: Indent) -> str:
+    name = dec_name(info)
+    out = str(indent) + "channel " + name + ":" + "\n"
+    indent.increase()
+    while len(info) > 1:
+        out += dump_field(info, indent)
+    indent.decrease()
+    return out
 
 
-def dec_primitive(primitive: int) -> str:
-    return str(Primitive(primitive).name)
-
-
-def dec_array_length(type: int, info: bytes) -> (int, bytes):
-    match type & FIELD_LENGTH_MASK:
-        case ArrayLengthSize.NONE:
-            return (1, info)
-        case ArrayLengthSize.ONE:
-            length = info[0]
-            return (info[0], info[1:])
-        case ArrayLengthSize.TWO:
-            length = int.from_bytes(info[0:2], byteorder="little")
-            return (length, info[2:])
-        case ArrayLengthSize.FOUR:
-            length = int.from_bytes(info[0:4], byteorder="little")
-            return (length, info[4:])
-
-
-def dump_field(info: bytes, n_indent: int) -> (bytes, int):
-    name_length = info[0]
-    info = info[1:]
-    name = info[:name_length].decode("utf-8")
-    info = info[name_length:]
-    type = info[0]
-    info = info[1:]
-    (array_length, info) = dec_array_length(type, info)
-
-    if array_length == 1:
-        array = ""
-    else:
-        array = " [" + str(array_length) + "]"
-
-    if type & STRUCT_END:
-        n_indent = n_indent - 1
-        print(indent(n_indent) + "}")
-
-    out = indent(n_indent) + str(name) + array
-
-    match type & FIELD_TYPE_MASK:
-        case FieldType.PRIMITIVE:
-            out += " " + dec_primitive(info[0])
-            info = info[1:]
-        case FieldType.STRUCT:
-            out += " struct {"
-            n_indent = n_indent + 1
-        case FieldType.UNION:
-            out += " union {"
-            n_indent = n_indent + 1
-
-    print(out)
-    return (info, n_indent)
-
-
-def dump_info(info: bytes):
-
-    n_indent = 0
-    while len(info) > 0:
-        (info, n_indent) = dump_field(info, n_indent)
+def dump_group_info(group: Group):
+    indent = Indent(IndentStyle.SPACES, 2)
+    info = bytearray(group.info)
+    
+    name = dec_name(info)
+    print("group " + name + ":" )
+    indent.increase()
+    print(str(indent) + "c2s:")
+    indent.increase()
+    for channel in group.c2s:
+        out = dump_channel(bytearray(channel.info), indent)
+        print(out)
+    indent.decrease()
+    print(str(indent) + "s2c:")
+    indent.increase()
+    for channel in group.s2c:
+        out = dump_channel(bytearray(channel.info), indent)
+        print(out)
+    indent.decrease()
