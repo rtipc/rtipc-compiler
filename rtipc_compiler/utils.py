@@ -25,6 +25,12 @@ class Indent(object):
         if self.current == 0:
             raise RuntimeError("can't decrease indent below zero")
         self.current = self.current - 1
+        
+    def line(self, content: str, n: int = 1) -> str:
+        out = ""
+        if (content is not None) and (content != ""):
+            out = str(self) + content 
+        out += "\n" * n 
 
     def __str__(self):
         return str(self.style.value) * self.n * self.current
