@@ -3,7 +3,7 @@ from parser import RtIpcParser
 from c.gen import CGenerator
 from rust.gen import RustGenerator
 from pathlib import Path
-
+from info import add_group_info, dump_group_info
 
 def main():
     langs = ["c", "rust", "cpp"]
@@ -26,8 +26,11 @@ def main():
 
     ns = argparser.parse_args()
     parser = RtIpcParser()
-    structs = parser.parse(ns.schema)
-    
+    groups, structs = parser.parse(ns.schema)
+
+    for group in groups: 
+        add_group_info(group)
+
     match ns.lang:
         case "c":
             gen = CGenerator()
@@ -36,7 +39,7 @@ def main():
         case _:
             raise RuntimeError("language " + ns.lang + " not supported")
             
-    gen.write(ns.output, ns.schema.stem, structs)
+    gen.write(ns.output, ns.schema.stem, groups, structs)
 
 
 if __name__ == "__main__":
