@@ -1,24 +1,31 @@
 start: _item*
 
-_item: message
+_item: union | struct | group
 
-?message: direction? (union | struct)
-
-
+?group: "group" name "{"  ((s2c_channels c2s_channels?) | (c2s_channels s2c_channels?)) "}"
 ?union: "union" name "{" fields "}"
 ?struct: "struct" name "{" fields "}"
-
 
 fields: field (("," field)*) ","?
 ?field: name ":" fieldtype
 
 ?fieldtype: | array
-           | vartype
+           | (primitive | type)
 
-?array: "[" vartype ";" length "]"
+?array: "[" (primitive | type) ";" length "]"
 
-?vartype: primitive
-       | type
+?s2c_channels: "s2c" "{" channels  "}"
+?c2s_channels: "c2s" "{" channels  "}"
+
+channels: channel (("," channel)*) ","?
+
+?channel: name ":" "[" type ";" add_msgs ";" eventfd "]"
+
+!name: CNAME
+!type: CNAME
+
+
+!length: INT
 
 !primitive: "bool"
   | "i8"
@@ -31,16 +38,17 @@ fields: field (("," field)*) ","?
   | "i64"
   | "u64"
   | "f64"
-  
-!direction: "bi" 
-  | "c2s"
-  | "s2c"
 
 
-!name: CNAME
-!type: CNAME
+!bool: TRUE -> true
+  | FALSE -> false
 
-!length: INT
+TRUE: "true"
+FALSE: "false"
+
+!eventfd: bool
+
+!add_msgs: INT
 
 %import common.CNAME -> CNAME
 %import common.INT -> INT
