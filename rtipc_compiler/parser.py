@@ -5,7 +5,7 @@ from lark import Lark, Transformer, v_args
 from lark.tree import Meta
 from pathlib import Path
 
-from protocol import Direction, Struct, Field, Primitive
+from protocol import Group, Channel, Struct, Field, Primitive
 
 
 class StructType(Enum):
@@ -14,33 +14,47 @@ class StructType(Enum):
 
 
 @dataclass
-class SchemaType:
+class ParsedType:
     type: Union[str, Primitive]
     length: int
 
 
 @dataclass
-class SchemaField:
+class ParsedField:
     meta: Meta
     name: str
-    type: SchemaType
+    type: ParsedType
 
 
 @dataclass
-class SchemaStruct:
+class ParsedStruct:
     meta: Meta
     name: str
-    direction: Direction
     type: StructType
-    fields: list[SchemaField]
+    fields: list[ParsedField]
+
+@dataclass
+class ParsedChannel:
+    meta: Meta
+    name: str
+    type: str
+    add_msgs: int
+    eventfd: bool
+
+@dataclass
+class ParsedGroup:
+    meta: Meta
+    name: str
+    c2s: list[ParsedChannel]
+    s2c: list[ParsedChannel]
 
 
-class StructNotFound(Exception):
+class StructNotFoundException(Exception):
     def __init__(self, name, line):
         super().__init__(f"struct {name} in line {line} not defined")
 
 
-class StructAlreadyDefined(Exception):
+class AlreadyDefinedException(Exception):
     def __init__(self, name, line):
         super().__init__(f"struct {name} in line {line} already defined")
 
@@ -49,6 +63,8 @@ class RtIpcTransformer(Transformer):
     INT = int
     CNAME = str
     fields = list
+    eventfd = bool
+    channels = list 
 
     @v_args(inline=True)
     def length(self, length: int) -> int:
@@ -59,50 +75,47 @@ class RtIpcTransformer(Transformer):
         return name
 
     @v_args(inline=True)
-    def primitive(self, str_prim: str) -> SchemaType:
+    def primitive(self, str_prim: str) -> ParsedType:
         try:
             primitive = Primitive[str_prim.upper()]
-            return SchemaType(primitive, 1)
+            return ParsedType(primitive, 1)
         except ValueError:
             raise SyntaxError(f"unnown primitive: {str_prim}")
 
     @v_args(inline=True)
-    def type(self, name: str) -> SchemaType:
-        return SchemaType(name, 1)
+    def type(self, name: str) -> ParsedType:
+        return ParsedType(name, 1)
 
     @v_args(inline=True)
-    def array(self, type: SchemaType, length: int) -> SchemaType:
+    def array(self, type: ParsedType, length: int) -> ParsedType:
         type.length = length
         return type
 
     @v_args(inline=True, meta=True)
-    def field(self, meta: Meta, name: str, type: SchemaType) -> SchemaField:
-        return SchemaField(meta, name, type)
-
-    @v_args(inline=True)
-    def direction(self, dir: str) -> Direction:
-        match dir:
-            case "bi":
-                return Direction.BIDIRECTIONAL
-            case "c2s":
-                return Direction.CLIENT_TO_SERVER
-            case "s2c":
-                return Direction.SERVER_TO_CLIENT
-            case _:
-                raise SyntaxError(f"unnown direction type: {dir}")
+    def field(self, meta: Meta, name: str, type: ParsedType) -> ParsedField:
+        return ParsedField(meta, name, type)
 
     @v_args(inline=True, meta=True)
-    def struct(self, meta: Meta, name: str, fields: list[SchemaField]) -> SchemaStruct:
-        return SchemaStruct(meta, name, Direction.NONE, StructType.STRUCT, fields)
+    def struct(self, meta: Meta, name: str, fields: list[ParsedField]) -> ParsedStruct:
+        return ParsedStruct(meta, name, StructType.STRUCT, fields)
 
     @v_args(inline=True, meta=True)
-    def union(self, meta: Meta, name: str, fields: list[SchemaField]) -> SchemaStruct:
-        return SchemaStruct(meta, name, Direction.NONE, StructType.UNION, fields)
+    def union(self, meta: Meta, name: str, fields: list[ParsedField]) -> ParsedStruct:
+        return ParsedStruct(meta, name, StructType.UNION, fields)
 
-    @v_args(inline=True)
-    def message(self, dir: Direction, struct: SchemaStruct) -> SchemaStruct:
-        struct.dir = dir
-        return struct
+    @v_args(inline=True, meta=True)
+    def channel(self, meta: Meta, name: str, type: ParsedType, add_msgs: int, eventfd: bool) -> ParsedChannel:
+        return ParsedChannel(meta, name, type.type, add_msgs, eventfd)
+
+    @v_args(inline=True, meta=True)
+    def group(self, meta: Meta, name: str, c2s_channels: list[ParsedChannel], s2c_channels: list[ParsedChannel]) -> ParsedGroup:
+        return ParsedGroup(meta, name, c2s_channels, s2c_channels)
+
+    def true(self, _):
+        return True
+
+    def false(self, _):
+        return False
 
     def start(self, children):
         return children
@@ -119,7 +132,7 @@ class RtIpcParser(object):
             propagate_positions=True,
         )
 
-    def create_field(self, field: SchemaField, structs: list[Struct]):
+    def create_field(self, field: ParsedField, structs: list[Struct]):
         if isinstance(field.type.type, str):
             type = structs.get(field.type.type)
             if type is None:
@@ -128,41 +141,70 @@ class RtIpcParser(object):
         else:
             return Field(field.name, field.type.type, field.type.length)
 
-    def create_fields(
-        self, schema_struct: SchemaStruct, structs: list[Struct]
-    ) -> list[Field]:
+    def process_struct(self, parsed_struct: ParsedStruct, structs: list[Struct]) -> Struct:
         fields = []
-
-        for schema_field in schema_struct.fields:
-            if isinstance(schema_field.type.type, str):
-                type = structs.get(schema_field.type.type)
+        for parsed_field in parsed_struct.fields:
+            if isinstance(parsed_field.type.type, str):
+                type = structs.get(parsed_field.type.type)
                 if type is None:
-                    raise StructNotFound(schema_field.type.type, schema_field.meta.line)
-                field = Field(schema_field.name, type, schema_field.type.length)
+                    raise StructNotFoundException(parsed_field.type.type, parsed_field.meta.line)
+                field = Field(parsed_field.name, type, parsed_field.type.length)
                 fields.append(field)
             else:
                 field = Field(
-                    schema_field.name, schema_field.type.type, schema_field.type.length
+                    parsed_field.name, parsed_field.type.type, parsed_field.type.length
                 )
                 fields.append(field)
 
-        return fields
+        return Struct(
+            parsed_struct.name,
+            parsed_struct.type == StructType.UNION,
+            fields,
+        )
 
-    def parse(self, path: Path) -> list[Struct]:
+    def process_group(self, parsed_group: ParsedGroup, structs: list[Struct]) -> Group:
+        s2c = []
+        c2s = []
+
+        for parsed_channel in parsed_group.c2s:
+            type = structs.get(parsed_channel.type)
+            if type is None:
+                raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
+            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd, '')
+            c2s.append(channel)
+
+        for parsed_channel in parsed_group.s2c:
+            type = structs.get(parsed_channel.type)
+            if type is None:
+                raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
+            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd, '')
+            s2c.append(channel)
+
+        return Group(
+                parsed_group.name,
+                c2s,
+                s2c,
+                ''
+            )
+
+    def parse(self, path: Path) -> (list[Group], list[Struct]):
         content = path.read_text(encoding="utf-8")
         tree = self.parser.parse(content)
         schema = RtIpcTransformer().transform(tree)
         structs = {}
+        groups = {}
 
-        for schema_struct in schema:
-            fields = self.create_fields(schema_struct, structs)
-            if schema_struct.name in structs:
-                raise StructAlreadyDefined(schema_struct.name, schema_struct.meta.line)
-            else:
-                structs[schema_struct.name] = Struct(
-                    schema_struct.name,
-                    schema_struct.type == StructType.UNION,
-                    schema_struct.direction,
-                    fields,
-                )
-        return structs.values()
+        for node in schema:
+            match node:
+                case ParsedStruct():
+                    if node.name in structs:
+                        raise AlreadyDefinedException(node.name, node.meta.line)
+                    struct = self.process_struct(node, structs)
+                    structs[node.name] = struct
+                case ParsedGroup():
+                    if node.name in groups:
+                        raise AlreadyDefinedException(node.name, node.meta.line)
+                    group = self.process_group(node, structs)
+                    groups[node.name] = group
+
+        return (groups.values(), structs.values())
