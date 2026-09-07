@@ -3,7 +3,7 @@ from parser import RtIpcParser
 from c.gen import CGenerator
 from rust.gen import RustGenerator
 from pathlib import Path
-from info import add_group_info, dump_group_info
+from info import add_info, dump_group_info
 
 def main():
     langs = ["c", "rust", "cpp"]
@@ -28,8 +28,10 @@ def main():
     parser = RtIpcParser()
     groups, structs = parser.parse(ns.schema)
 
+    add_info(groups, structs)
+    
     for group in groups: 
-        add_group_info(group)
+        dump_group_info(group)
 
     match ns.lang:
         case "c":

@@ -140,12 +140,15 @@ def add_group_info(group: Group):
     group.info = enc_name(group.name)
     for channel in group.c2s:
         group.info += enc_name(channel.name)
-        if channel.type.info is None:
-            channel.type.info = enc_struct(channel.type, 1)
     for channel in group.s2c:
         group.info += enc_name(channel.name)
-        if channel.type.info is None:
-            channel.type.info = enc_struct(channel.type, 1)
+
+
+def add_info(groups: list[Group], structs: list[Struct]):
+    for struct in structs:
+        struct.info = enc_struct(struct, 1)
+    for group in groups:
+        add_group_info(group)
 
 
 def dump_fields(num_fields: int, info: bytearray, indent: Indent) -> str:

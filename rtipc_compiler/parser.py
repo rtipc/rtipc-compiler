@@ -83,6 +83,10 @@ class RtIpcTransformer(Transformer):
             raise SyntaxError(f"unnown primitive: {str_prim}")
 
     @v_args(inline=True)
+    def add_msgs(self, add_msgs: str) -> int:
+        return int(add_msgs)
+        
+    @v_args(inline=True)
     def type(self, name: str) -> ParsedType:
         return ParsedType(name, 1)
 
@@ -160,6 +164,7 @@ class RtIpcParser(object):
             parsed_struct.name,
             parsed_struct.type == StructType.UNION,
             fields,
+            None,
         )
 
     def process_group(self, parsed_group: ParsedGroup, structs: list[Struct]) -> Group:
@@ -170,14 +175,14 @@ class RtIpcParser(object):
             type = structs.get(parsed_channel.type)
             if type is None:
                 raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
-            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd, '')
+            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd)
             c2s.append(channel)
 
         for parsed_channel in parsed_group.s2c:
             type = structs.get(parsed_channel.type)
             if type is None:
                 raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
-            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd, '')
+            channel = Channel(parsed_channel.name, type, parsed_channel.add_msgs, parsed_channel.eventfd)
             s2c.append(channel)
 
         return Group(
