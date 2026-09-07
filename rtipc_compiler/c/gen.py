@@ -53,25 +53,25 @@ def primitive_name(primitive: Primitive) -> str:
             raise RuntimeError("unknown primitive type")
 
 
-#static const char c_grp_dir_channel_info[] = {0x1, 0x3 0x4}; 
+# static const char c_grp_dir_channel_info[] = {0x1, 0x3 0x4};
 
-#const ri_channel_attr_t client2server_channels[] = {
+# const ri_channel_attr_t client2server_channels[] = {
 #    (ri_channel_attr_t) { .add_msgs = 0, .msg_size = sizeof(msg_command_t), .eventfd = 1, .info = { .data = COMMAND_INFO, .size = sizeof(COMMAND_INFO) }},
 #  { 0 },
-#};
+# };
 
 
-#const ri_channel_attr_t server2client_channels[] = {
+# const ri_channel_attr_t server2client_channels[] = {
 #  (ri_channel_attr_t) { .add_msgs = 0, .msg_size = sizeof(msg_response_t), .eventfd = 1, .info = { .data = RESPONSE_INFO, .size = sizeof(RESPONSE_INFO) }},
 #  (ri_channel_attr_t) { .add_msgs = 10, .msg_size = sizeof(msg_event_t), .eventfd = 1, .info = { .data = EVENT_INFO, .size = sizeof(EVENT_INFO) }},
 #  { 0 },
-#};
+# };
 
-#const ri_group_attr_t grp_attr = {
+# const ri_group_attr_t grp_attr = {
 #    .consumers = server2client_channels,
 #    .producers = client2server_channels,
 #    .info = { .data = GROUP_INFO, .size = sizeof(GROUP_INFO) }
-#};
+# };
 
 
 def header_name(name: str) -> str:
@@ -82,87 +82,147 @@ def variable_name(name: str) -> str:
     return convert_name(name, NameStyle.SNAKECASE)
 
 
-def struct_name(prefix: str, struct_name: str) -> str:
-    return cat_name([prefix, struct_name], NameStyle.SNAKECASE)
+def struct_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, name], NameStyle.SNAKECASE)
 
 
-def struct_info_name(prefix: str, struct_name: str) -> str:
-    return cat_name([prefix, struct_name, "info"], NameStyle.SNAKECASE)
-
-    
-def group_attr_name(prefix: str, group_name: str) -> str:
-    return cat_name([prefix, "group", group_name], NameStyle.SNAKECASE)
+def struct_info_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
 
 
-def direction_channels_name(group_name: str, direction: str) -> str:
-    return cat_name(["group", group_name, direction, "channels"], NameStyle.SNAKECASE)    
+def group_info_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, "group", name, "info"], NameStyle.SNAKECASE)
 
 
-def gen_source(form: Formatter, header: str, prefix: str, groups: list[Groups], structs: list[Struct]):
-    def gen_infos():
-        def struct_info_data_name(channel_name: str) -> str:
-            return struct_info_name(prefix, channel_name) + "_data"
-            
-        def gen_info(struct: Struct):
-            def gen_values(info: bytes):
-                for c in info[:-1]:
-                    form.put(hex(c) + ",")
-                form.put(hex(info[-1]))
-            if (struct.info is None) or (struct.info == ""):
-                return ""
+def group_attr_name(prefix: str, role: str, name: str) -> str:
+    return cat_name([prefix, role, "group", name], NameStyle.SNAKECASE)
 
-            form.put("static const uint8_t " + struct_info_data_name(struct.name) + "[] = {")
-            gen_values(struct.info)
-            form.end_line("};")
-            form.blank_line()
-            
-            form.end_line("const ri_info_t " + struct_info_name(prefix, struct.name) + " = { ", 1)
-            form.end_line(".data = " + struct_info_data_name(struct.name) + ",")
-            form.end_line(".size = sizeof(" + struct_info_data_name(struct.name) + ")", -1)
-            form.end_line("};")
-            
+
+def direction_channels_name(name: str, direction: str) -> str:
+    return cat_name(["group", name, direction, "channels"], NameStyle.SNAKECASE)
+
+
+def gen_source(
+    form: Formatter,
+    header: str,
+    prefix: str,
+    groups: list[Groups],
+    structs: list[Struct],
+):
+    def gen_info(name: str, info: bytes, static: bool = True):
+        def data_name() -> str:
+            return cat_name([name, "data"], NameStyle.SNAKECASE)
+
+        def gen_values():
+            for c in info[:-1]:
+                form.put(hex(c) + ",")
+            form.put(hex(info[-1]))
+
+        if (info is None) or (info == ""):
+            return ""
+        if static:
+            form.put("static ")
+        form.put("const uint8_t " + data_name() + "[] = {")
+        gen_values()
+        form.end_line("};")
+        form.blank_line()
+
+        form.end_line("const ri_info_t " + name + " = { ", 1)
+        form.end_line(".data = " + data_name() + ",")
+        form.end_line(".size = sizeof(" + data_name() + ")", -1)
+        form.end_line("};")
+        form.blank_line()
+
+    def gen_struct_infos():
         for struct in structs:
-            gen_info(struct)
-            form.blank_line(2)
-            
+            name = struct_info_name(prefix, struct.name)
+            gen_info(name, struct.info)
+            form.blank_line()
+
     def gen_groups_attrs():
+        def gen_group_info(group: Group):
+            name = group_info_name(prefix, group.name)
+            gen_info(name, group.info)
+
         def gen_group_attr(group: Group):
             def gen_channel_attr(channel: Channel):
                 form.put("(ri_channel_attr_t) {")
-                form.put(" .add_msgs = " + str(channel.add_msgs) + "," )
-                form.put(" .msg_size = sizeof(" + struct_info_name(prefix, channel.type.name) + "),")
+                form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
+                form.put(
+                    " .msg_size = sizeof("
+                    + struct_info_name(prefix, channel.type.name)
+                    + "),"
+                )
                 if channel.eventfd:
                     form.end_line(" .eventfd = 1 },")
                 else:
                     form.end_line(" .eventfd = 0 },")
-            def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
-                form.end_line("static const ri_channel_attr_t " + direction_channels_name(group.name, direction) + "[]"  " = { ", 1)
+
+            def gen_dir_channels(
+                group_name: str, direction: str, channels: list[Channel]
+            ):
+                form.end_line(
+                    "static const ri_channel_attr_t "
+                    + direction_channels_name(group.name, direction)
+                    + "[]"
+                    " = { ",
+                    1,
+                )
                 for channel in channels:
                     gen_channel_attr(channel)
-                form.end_line("{ 0 },", -1) 
-                form.end_line("};") 
-                form.blank_line() 
-                            
+                form.end_line("{ 0 },", -1)
+                form.end_line("};")
+                form.blank_line()
+
             gen_dir_channels(group.name, "c2s", group.c2s)
             gen_dir_channels(group.name, "s2c", group.s2c)
-            
-            form.end_line("const ri_group_attr_t " + group_attr_name(prefix, group.name) + " = { ", 1)
-            form.end_line(".consumers = " + direction_channels_name(group.name, "s2c") + ",")
-            form.end_line(".producers = " + direction_channels_name(group.name, "c2s")) 
-            form.end_line("};") 
+
+            form.end_line(
+                "const ri_group_attr_t "
+                + group_attr_name(prefix, "client", group.name)
+                + " = { ",
+                1,
+            )
+            form.end_line(
+                ".consumers = " + direction_channels_name(group.name, "s2c") + ","
+            )
+            form.end_line(
+                ".producers = " + direction_channels_name(group.name, "c2s") + ","
+            )
+            form.end_line(".info = " + group_info_name(prefix, group.name))
+            form.add_line("};", -1)
+            form.blank_line()
+            form.end_line(
+                "const ri_group_attr_t "
+                + group_attr_name(prefix, "server", group.name)
+                + " = { ",
+                1,
+            )
+            form.end_line(
+                ".consumers = " + direction_channels_name(group.name, "c2s") + ","
+            )
+            form.end_line(
+                ".producers = " + direction_channels_name(group.name, "s2c") + ","
+            )
+            form.end_line(".info = " + group_info_name(prefix, group.name))
+            form.add_line("};", -1)
+
         for group in groups:
+            gen_group_info(group)
             gen_group_attr(group)
             form.blank_line()
-        
-    form.add_line("#include \"" + header + "\"")
+
+    form.add_line('#include "' + header + '"')
     form.blank_line(2)
-    
-    gen_infos()
+
+    gen_struct_infos()
     form.blank_line()
     gen_groups_attrs()
-    
-    
-def gen_header(form: Formatter, prefix: str, groups: list[Groups], structs: list[Struct]):
+
+
+def gen_header(
+    form: Formatter, prefix: str, groups: list[Groups], structs: list[Struct]
+):
     def gen_structs_defs():
         def gen_struct_def(struct: Struct):
             def gen_field(field: Field):
@@ -192,14 +252,15 @@ def gen_header(form: Formatter, prefix: str, groups: list[Groups], structs: list
                 form.blank_line()
 
             start_struct()
-            
+
             for field in struct.fields:
                 gen_field(field)
-                
+
             end_struct()
-            
+
         for struct in structs:
             gen_struct_def(struct)
+
     form.add_line("#pragma once")
     form.blank_line(2)
     form.add_line("#include <stdint.h>")
@@ -215,9 +276,10 @@ class CStyle:
     variableStyle = NameStyle.SNAKECASE
     structStyle = NameStyle.SNAKECASE
     indent = Indent(IndentStyle.SPACES, 4)
+
     def __init__(self):
-        self.form = Formatter(indent) 
-    
+        self.form = Formatter(indent)
+
 
 class CGenerator(object):
     def __init__(self):
@@ -226,33 +288,24 @@ class CGenerator(object):
         self.variableStyle = NameStyle.SNAKECASE
         self.structStyle = NameStyle.SNAKECASE
 
-
-
-
-
-
-
     def write(self, path: Path, name: str, groups: list[Group], structs: list[Struct]):
         indent = Indent(IndentStyle.SPACES, 4)
-        form = Formatter(indent, max_width = 75)
+        form = Formatter(indent, max_width=75)
         gen_header(form, "rpc", groups, structs)
         header = path / (name + ".h")
         header.write_text(form.take())
-        
+
         gen_source(form, name + ".h", "rpc", groups, structs)
         source = path / (name + ".c")
         source.write_text(form.take())
-       
-        #out = gen_source(indent, name, groups, structs)
-        #print("header: \n" + out)
-        
-        #gen_structs_infos(form, structs)
-        #gen_groups_attrs(form, groups)
-        #out = form.take()
-        #out = gen_source(indent, name, groups, structs)
-        #print("source: \n")
-        #self.generate(structs)
-        #out = gen_group_infos(indent: Indent, group: Group)
-       
-        
 
+        # out = gen_source(indent, name, groups, structs)
+        # print("header: \n" + out)
+
+        # gen_structs_infos(form, structs)
+        # gen_groups_attrs(form, groups)
+        # out = form.take()
+        # out = gen_source(indent, name, groups, structs)
+        # print("source: \n")
+        # self.generate(structs)
+        # out = gen_group_infos(indent: Indent, group: Group)

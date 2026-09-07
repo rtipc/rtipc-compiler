@@ -5,6 +5,7 @@ from rust.gen import RustGenerator
 from pathlib import Path
 from info import add_info, dump_group_info
 
+
 def main():
     langs = ["c", "rust", "cpp"]
     argparser = ArgumentParser(
@@ -29,8 +30,8 @@ def main():
     groups, structs = parser.parse(ns.schema)
 
     add_info(groups, structs)
-    
-    for group in groups: 
+
+    for group in groups:
         dump_group_info(group)
 
     match ns.lang:
@@ -40,7 +41,7 @@ def main():
             gen = RustGenerator()
         case _:
             raise RuntimeError("language " + ns.lang + " not supported")
-            
+
     gen.write(ns.output, ns.schema.stem, groups, structs)
 
 

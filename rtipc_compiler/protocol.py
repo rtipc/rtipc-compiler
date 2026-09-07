@@ -47,12 +47,14 @@ class Field:
     type: Union[Struct, Primitive]
     length: int
 
+
 @dataclass
 class Channel:
     name: str
     type: Struct
     add_msgs: int
     eventfd: bool
+
 
 @dataclass
 class Group:

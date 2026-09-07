@@ -57,7 +57,7 @@ class RustGenerator(object):
         return convert_name(name, self.variableStyle)
 
     def structName(self, name: str) -> str:
-        return  convert_name(name, self.structStyle)
+        return convert_name(name, self.structStyle)
 
     def addLine(self, line: str):
         self.content = self.content + str(self.indent) + line + "\n"
@@ -113,4 +113,3 @@ class RustGenerator(object):
         file = path / (name + ".rs")
 
         file.write_text(self.content)
-
