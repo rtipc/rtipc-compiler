@@ -1,13 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
-from protocol import Struct, Field, Primitive
-from utils import Indent, convert_name, IndentStyle, NameStyle
+
+from protocol import Channel, Field, Group, Primitive, Struct
+from utils import Formatter, Indent, IndentStyle, NameStyle, convert_name
 
 
-file_end = ""
-
-
-def primitiveName(primitive: Primitive) -> str:
+def primitive_name(primitive: Primitive) -> str:
     match primitive:
         case Primitive.BOOL:
             return "bool"
@@ -39,6 +37,30 @@ def primitiveName(primitive: Primitive) -> str:
             raise RuntimeError("F128 not supported")
         case _:
             raise RuntimeError("unknown primitive type")
+
+
+def variable_name(name: str) -> str:
+    return convert_name(name, NameStyle.SNAKECASE)
+
+
+def struct_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, name], NameStyle.SNAKECASE)
+
+
+def struct_info_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
+
+
+def group_info_name(prefix: str, name: str) -> str:
+    return cat_name([prefix, "group", name, "info"], NameStyle.SNAKECASE)
+
+
+def group_attr_name(prefix: str, role: str, name: str) -> str:
+    return cat_name([prefix, role, "group", name], NameStyle.SNAKECASE)
+
+
+def direction_channels_name(name: str, direction: str) -> str:
+    return cat_name(["group", name, direction, "channels"], NameStyle.SNAKECASE)
 
 
 @dataclass

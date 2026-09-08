@@ -1,5 +1,5 @@
-from enum import Enum
 import re
+from enum import Enum
 
 
 class IndentStyle(Enum):
@@ -9,11 +9,12 @@ class IndentStyle(Enum):
 
 class NameStyle(Enum):
     CAMELCASE = 1
-    SNAKECASE = 2
-    PASCALCASE = 3
+    CONSTANTCASE = 2
+    SNAKECASE = 3
+    PASCALCASE = 4
 
 
-class Indent(object):
+class Indent:
     def __init__(self, style: IndentStyle, num_tabs: int):
         self.style = style
         self.num_tabs = num_tabs
@@ -55,7 +56,7 @@ class Indent(object):
         return str(self.style.value) * self.num_tabs * self.current
 
 
-class Formatter(object):
+class Formatter:
     def __init__(self, indent: Indent, max_width: int = -1):
         self.indent = indent
         self.out = ""
@@ -83,10 +84,11 @@ class Formatter(object):
         if (text is None) or (text == ""):
             return
 
-        if self.max_width > 0:
-            if self.indent.to_spaces() + len(self.line) + len(text) > self.max_width:
-                self.line_break()
-                self.line = " " * self.spaces_after_break
+        if (self.max_width > 0) and (
+            self.indent.to_spaces() + len(self.line) + len(text) > self.max_width
+        ):
+            self.line_break()
+            self.line = " " * self.spaces_after_break
         self.line += text
 
     def end_line(self, text: str, indent_move: int = 0):
@@ -109,11 +111,14 @@ class Formatter(object):
 
 
 def convert_name(name: str, style: NameStyle) -> str:
-    if style == NameStyle.SNAKECASE:
+    if (style == NameStyle.SNAKECASE) or (style == NameStyle.CONSTANTCASE):
         name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
         name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", name)
         name = name.replace("-", "_")
-        return name.lower()
+        if style == NameStyle.SNAKECASE:
+            return name.lower()
+        else:
+            return name.upper()
     else:
         name = re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), name)
         if style == NameStyle.SNAKECASE:
@@ -124,7 +129,7 @@ def convert_name(name: str, style: NameStyle) -> str:
 
 def cat_name(substrings: list[str], style: NameStyle) -> str:
     substrings = [s for s in substrings if s.strip()]
-    if style == NameStyle.SNAKECASE:
+    if (style == NameStyle.SNAKECASE) or (style == NameStyle.CONSTANTCASE):
         return "_".join(convert_name(substring, style) for substring in substrings)
     else:
         return "".join(convert_name(substring, style) for substring in substrings)

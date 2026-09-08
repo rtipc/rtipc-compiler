@@ -1,22 +1,13 @@
-from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from protocol import Struct, Field, Primitive
-from utils import Indent, Formatter, convert_name, cat_name, IndentStyle, NameStyle
 
-file_begin = """#pragma once
+from protocol import Channel, Field, Group, Primitive, Struct
+from utils import Formatter, Indent, IndentStyle, NameStyle, cat_name, convert_name
 
-$include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-"""
-
-file_end = """
-#ifdef __cplusplus
-}
-#endif
-"""
+class EndpointRole(Enum):
+    CLIENT = (1,)
+    SERVER = 2
 
 
 def primitive_name(primitive: Primitive) -> str:
@@ -53,29 +44,39 @@ def primitive_name(primitive: Primitive) -> str:
             raise RuntimeError("unknown primitive type")
 
 
-# static const char c_grp_dir_channel_info[] = {0x1, 0x3 0x4};
-
-# const ri_channel_attr_t client2server_channels[] = {
-#    (ri_channel_attr_t) { .add_msgs = 0, .msg_size = sizeof(msg_command_t), .eventfd = 1, .info = { .data = COMMAND_INFO, .size = sizeof(COMMAND_INFO) }},
-#  { 0 },
-# };
-
-
-# const ri_channel_attr_t server2client_channels[] = {
-#  (ri_channel_attr_t) { .add_msgs = 0, .msg_size = sizeof(msg_response_t), .eventfd = 1, .info = { .data = RESPONSE_INFO, .size = sizeof(RESPONSE_INFO) }},
-#  (ri_channel_attr_t) { .add_msgs = 10, .msg_size = sizeof(msg_event_t), .eventfd = 1, .info = { .data = EVENT_INFO, .size = sizeof(EVENT_INFO) }},
-#  { 0 },
-# };
-
-# const ri_group_attr_t grp_attr = {
-#    .consumers = server2client_channels,
-#    .producers = client2server_channels,
-#    .info = { .data = GROUP_INFO, .size = sizeof(GROUP_INFO) }
-# };
-
-
 def header_name(name: str) -> str:
     return name + ".h"
+
+
+def header_start(form: Formatter, includes: list[str]):
+    form.add_line("#pragma once")
+    form.blank_line(2)
+    for inc in includes:
+        if inc == "":
+            form.blank_line(1)
+        else:
+            form.add_line("#include " + inc)
+    form.blank_line(2)
+    form.add_line("#ifdef __cplusplus")
+    form.add_line('extern "C" {')
+    form.add_line("#endif")
+    form.blank_line(2)
+
+
+def header_end(form: Formatter):
+    form.blank_line(2)
+    form.add_line("#ifdef __cplusplus")
+    form.add_line("}")
+    form.add_line("#endif")
+
+
+def source_start(form: Formatter, includes: list[str]):
+    for inc in includes:
+        if inc == "":
+            form.blank_line(1)
+        else:
+            form.add_line("#include " + inc)
+    form.blank_line(2)
 
 
 def variable_name(name: str) -> str:
@@ -91,7 +92,7 @@ def struct_info_name(prefix: str, name: str) -> str:
 
 
 def group_info_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, "group", name, "info"], NameStyle.SNAKECASE)
+    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
 
 
 def group_attr_name(prefix: str, role: str, name: str) -> str:
@@ -102,126 +103,18 @@ def direction_channels_name(name: str, direction: str) -> str:
     return cat_name(["group", name, direction, "channels"], NameStyle.SNAKECASE)
 
 
-def gen_source(
-    form: Formatter,
-    header: str,
-    prefix: str,
-    groups: list[Groups],
-    structs: list[Struct],
-):
-    def gen_info(name: str, info: bytes, static: bool = True):
-        def data_name() -> str:
-            return cat_name([name, "data"], NameStyle.SNAKECASE)
+def consumer_channels_name(role: EndpointRole, name: str) -> str:
+    direction = "s2c" if role == EndpointRole.CLIENT else "c2s"
+    return direction_channels_name(name, direction)
 
-        def gen_values():
-            for c in info[:-1]:
-                form.put(hex(c) + ",")
-            form.put(hex(info[-1]))
 
-        if (info is None) or (info == ""):
-            return ""
-        if static:
-            form.put("static ")
-        form.put("const uint8_t " + data_name() + "[] = {")
-        gen_values()
-        form.end_line("};")
-        form.blank_line()
-
-        form.end_line("const ri_info_t " + name + " = { ", 1)
-        form.end_line(".data = " + data_name() + ",")
-        form.end_line(".size = sizeof(" + data_name() + ")", -1)
-        form.end_line("};")
-        form.blank_line()
-
-    def gen_struct_infos():
-        for struct in structs:
-            name = struct_info_name(prefix, struct.name)
-            gen_info(name, struct.info)
-            form.blank_line()
-
-    def gen_groups_attrs():
-        def gen_group_info(group: Group):
-            name = group_info_name(prefix, group.name)
-            gen_info(name, group.info)
-
-        def gen_group_attr(group: Group):
-            def gen_channel_attr(channel: Channel):
-                form.put("(ri_channel_attr_t) {")
-                form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
-                form.put(
-                    " .msg_size = sizeof("
-                    + struct_info_name(prefix, channel.type.name)
-                    + "),"
-                )
-                if channel.eventfd:
-                    form.end_line(" .eventfd = 1 },")
-                else:
-                    form.end_line(" .eventfd = 0 },")
-
-            def gen_dir_channels(
-                group_name: str, direction: str, channels: list[Channel]
-            ):
-                form.end_line(
-                    "static const ri_channel_attr_t "
-                    + direction_channels_name(group.name, direction)
-                    + "[]"
-                    " = { ",
-                    1,
-                )
-                for channel in channels:
-                    gen_channel_attr(channel)
-                form.end_line("{ 0 },", -1)
-                form.end_line("};")
-                form.blank_line()
-
-            gen_dir_channels(group.name, "c2s", group.c2s)
-            gen_dir_channels(group.name, "s2c", group.s2c)
-
-            form.end_line(
-                "const ri_group_attr_t "
-                + group_attr_name(prefix, "client", group.name)
-                + " = { ",
-                1,
-            )
-            form.end_line(
-                ".consumers = " + direction_channels_name(group.name, "s2c") + ","
-            )
-            form.end_line(
-                ".producers = " + direction_channels_name(group.name, "c2s") + ","
-            )
-            form.end_line(".info = " + group_info_name(prefix, group.name))
-            form.add_line("};", -1)
-            form.blank_line()
-            form.end_line(
-                "const ri_group_attr_t "
-                + group_attr_name(prefix, "server", group.name)
-                + " = { ",
-                1,
-            )
-            form.end_line(
-                ".consumers = " + direction_channels_name(group.name, "c2s") + ","
-            )
-            form.end_line(
-                ".producers = " + direction_channels_name(group.name, "s2c") + ","
-            )
-            form.end_line(".info = " + group_info_name(prefix, group.name))
-            form.add_line("};", -1)
-
-        for group in groups:
-            gen_group_info(group)
-            gen_group_attr(group)
-            form.blank_line()
-
-    form.add_line('#include "' + header + '"')
-    form.blank_line(2)
-
-    gen_struct_infos()
-    form.blank_line()
-    gen_groups_attrs()
+def producer_channels_name(role: EndpointRole, name: str) -> str:
+    direction = "c2s" if role == EndpointRole.CLIENT else "s2c"
+    return direction_channels_name(name, direction)
 
 
 def gen_header(
-    form: Formatter, prefix: str, groups: list[Groups], structs: list[Struct]
+    form: Formatter, prefix: str, groups: list[Group], structs: list[Struct]
 ):
     def gen_structs_defs():
         def gen_struct_def(struct: Struct):
@@ -234,7 +127,7 @@ def gen_header(
                     else:
                         form.put("struct " + struct_name(prefix, field.type.name))
                 else:
-                    raise RuntimeError("unsupported field type: " + str(field))
+                    raise TypeError("unsupported field type: " + str(field))
                 form.put(" " + variable_name(field.name))
                 if field.length > 1:
                     form.put("[" + str(field.length) + "]")
@@ -261,51 +154,155 @@ def gen_header(
         for struct in structs:
             gen_struct_def(struct)
 
-    form.add_line("#pragma once")
-    form.blank_line(2)
-    form.add_line("#include <stdint.h>")
-    form.blank_line(1)
-    form.add_line("#include <rtipc/rtipc.h>")
-    form.blank_line(2)
+    def gen_infos():
+        for struct in structs:
+            name = struct_info_name(prefix, struct.name)
+            form.add_line("extern const ri_info_t " + name + ";")
+            form.blank_line()
+        form.blank_line()
+        for group in groups:
+            name = group_info_name(prefix, group.name)
+            form.add_line("extern const ri_info_t " + name + ";")
+            form.blank_line()
+
+    def gen_groups_attrs():
+        def gen_group_attr(group: Group, role: EndpointRole):
+            strrole = "client" if role == EndpointRole.CLIENT else "server"
+            name = group_attr_name(prefix, strrole, group.name)
+            form.start_line("extern const ri_group_attr_t ")
+            form.end_line(name + ";")
+
+        for group in groups:
+            gen_group_attr(group, EndpointRole.CLIENT)
+            form.blank_line()
+            gen_group_attr(group, EndpointRole.SERVER)
+            form.blank_line()
+
+    header_start(form, ["<stdint.h>", "", "<rtipc/rtipc.h>"])
     gen_structs_defs()
+    form.blank_line(1)
+    gen_infos()
+    form.blank_line()
+    gen_groups_attrs()
+    form.blank_line()
+    header_end(form)
 
 
-@dataclass
-class CStyle:
-    prefix = ""
-    variableStyle = NameStyle.SNAKECASE
-    structStyle = NameStyle.SNAKECASE
+def gen_source(
+    form: Formatter,
+    header: str,
+    prefix: str,
+    groups: list[Group],
+    structs: list[Struct],
+):
+    def gen_info(name: str, info: bytes, static: bool = True):
+        def data_name() -> str:
+            return cat_name([name, "data"], NameStyle.SNAKECASE)
+
+        def gen_values():
+            for c in info[:-1]:
+                form.put(hex(c) + ",")
+            form.put(hex(info[-1]))
+
+        if (info is None) or (info == ""):
+            return ""
+        if static:
+            form.put("static ")
+        form.put("const uint8_t " + data_name() + "[] = {")
+        gen_values()
+        form.end_line("};")
+        form.blank_line()
+
+        form.end_line("const ri_info_t " + name + " = { ", 1)
+        form.end_line(".data = " + data_name() + ",")
+        form.end_line(".size = sizeof(" + data_name() + ")", -1)
+        form.end_line("};")
+        form.blank_line()
+
+    def gen_structs_infos():
+        for struct in structs:
+            name = struct_info_name(prefix, struct.name)
+            gen_info(name, struct.info)
+            form.blank_line()
+
+    def gen_groups_infos():
+        def gen_group_info(group: Group):
+            name = group_info_name(prefix, group.name)
+            gen_info(name, group.info)
+
+        for group in groups:
+            gen_group_info(group)
+
+    def gen_groups_channels():
+        def gen_channel_attr(channel: Channel):
+            info_name = struct_info_name(prefix, channel.type.name)
+            form.put("{")
+            form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
+            form.put(" .msg_size = sizeof(" + info_name + "),")
+            if channel.eventfd:
+                form.end_line(" .eventfd = 1 },")
+            else:
+                form.end_line(" .eventfd = 0 },")
+
+        def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
+            form.end_line(
+                "static const ri_channel_attr_t "
+                + direction_channels_name(group.name, direction)
+                + "[]"
+                " = { ",
+                1,
+            )
+            for channel in channels:
+                gen_channel_attr(channel)
+            form.end_line("{ 0 },", -1)
+            form.end_line("};")
+            form.blank_line()
+
+        for group in groups:
+            gen_dir_channels(group.name, "c2s", group.c2s)
+            gen_dir_channels(group.name, "s2c", group.s2c)
+            form.blank_line()
+
+    def gen_groups_attrs():
+        def gen_group_attr(group: Group, role: EndpointRole):
+            strrole = "client" if role == EndpointRole.CLIENT else "server"
+            name = group_attr_name(prefix, strrole, group.name)
+            form.start_line("const ri_group_attr_t ")
+            form.end_line(name + " = {", 1)
+            form.end_line(
+                ".consumers = " + consumer_channels_name(role, group.name) + ","
+            )
+            form.end_line(
+                ".producers = " + producer_channels_name(role, group.name) + ","
+            )
+            form.end_line(".info = " + group_info_name(prefix, group.name))
+            form.add_line("};", -1)
+
+        for group in groups:
+            gen_group_attr(group, EndpointRole.CLIENT)
+            form.blank_line()
+            gen_group_attr(group, EndpointRole.SERVER)
+            form.blank_line(2)
+
+    source_start(form, ['"' + header + '"'])
+    gen_structs_infos()
+    form.blank_line()
+    gen_groups_infos()
+    form.blank_line()
+    gen_groups_channels()
+    gen_groups_attrs()
+
+
+def generate(
+    path: Path, prefix: str, name: str, groups: list[Group], structs: list[Struct]
+):
     indent = Indent(IndentStyle.SPACES, 4)
+    form = Formatter(indent, max_width=75)
 
-    def __init__(self):
-        self.form = Formatter(indent)
+    gen_header(form, prefix, groups, structs)
+    file = path / (name + ".h")
+    file.write_text(form.take())
 
-
-class CGenerator(object):
-    def __init__(self):
-        self.indent = Indent(IndentStyle.SPACES, 4)
-        self.prefix = ""
-        self.variableStyle = NameStyle.SNAKECASE
-        self.structStyle = NameStyle.SNAKECASE
-
-    def write(self, path: Path, name: str, groups: list[Group], structs: list[Struct]):
-        indent = Indent(IndentStyle.SPACES, 4)
-        form = Formatter(indent, max_width=75)
-        gen_header(form, "rpc", groups, structs)
-        header = path / (name + ".h")
-        header.write_text(form.take())
-
-        gen_source(form, name + ".h", "rpc", groups, structs)
-        source = path / (name + ".c")
-        source.write_text(form.take())
-
-        # out = gen_source(indent, name, groups, structs)
-        # print("header: \n" + out)
-
-        # gen_structs_infos(form, structs)
-        # gen_groups_attrs(form, groups)
-        # out = form.take()
-        # out = gen_source(indent, name, groups, structs)
-        # print("source: \n")
-        # self.generate(structs)
-        # out = gen_group_infos(indent: Indent, group: Group)
+    gen_source(form, name + ".h", prefix, groups, structs)
+    file = path / (name + ".c")
+    file.write_text(form.take())

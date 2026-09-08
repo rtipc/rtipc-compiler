@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, FileType
 from parser import RtIpcParser
-from c.gen import CGenerator
+from c.gen import generate as c_generate
 from rust.gen import RustGenerator
 from pathlib import Path
 from info import add_info, dump_group_info
@@ -31,18 +31,13 @@ def main():
 
     add_info(groups, structs)
 
-    for group in groups:
-        dump_group_info(group)
-
     match ns.lang:
         case "c":
-            gen = CGenerator()
+            c_generate(ns.output, "exmpl", ns.schema.stem, groups, structs)
         case "rust":
             gen = RustGenerator()
         case _:
             raise RuntimeError("language " + ns.lang + " not supported")
-
-    gen.write(ns.output, ns.schema.stem, groups, structs)
 
 
 if __name__ == "__main__":

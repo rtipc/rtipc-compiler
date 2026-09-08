@@ -1,6 +1,6 @@
-from typing import Union
-from enum import Enum, IntEnum
 from dataclasses import dataclass
+from enum import IntEnum
+
 
 PRIMITIVE_SIZE_MASK = 0x07
 PRIMITIVE_SIZE_BOOLEAN = 0x00
@@ -44,7 +44,7 @@ class Struct:
 @dataclass
 class Field:
     name: str
-    type: Union[Struct, Primitive]
+    type: Struct | Primitive
     length: int
 
 

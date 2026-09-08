@@ -1,11 +1,10 @@
-from typing import Union
-from enum import Enum
 from dataclasses import dataclass
-from lark import Lark, Transformer, v_args
-from lark.tree import Meta
+from enum import Enum
 from pathlib import Path
 
-from protocol import Group, Channel, Struct, Field, Primitive
+from lark import Lark, Transformer, v_args
+from lark.tree import Meta
+from protocol import Channel, Field, Group, Primitive, Struct
 
 
 class StructType(Enum):
@@ -15,7 +14,7 @@ class StructType(Enum):
 
 @dataclass
 class ParsedType:
-    type: Union[str, Primitive]
+    type: str | Primitive
     length: int
 
 
@@ -135,7 +134,7 @@ class RtIpcTransformer(Transformer):
         return children
 
 
-class RtIpcParser(object):
+class RtIpcParser:
     def __init__(self):
 
         lark_path = Path(__file__).parent
@@ -150,7 +149,7 @@ class RtIpcParser(object):
         if isinstance(field.type.type, str):
             type = structs.get(field.type.type)
             if type is None:
-                raise StructNotFound(field.type.type, field.meta.line)
+                raise StructNotFoundException(field.type.type, field.meta.line)
             return Field(field.name, type, field.type.length)
         else:
             return Field(field.name, field.type.type, field.type.length)
@@ -188,7 +187,9 @@ class RtIpcParser(object):
         for parsed_channel in parsed_group.c2s:
             type = structs.get(parsed_channel.type)
             if type is None:
-                raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
+                raise StructNotFoundException(
+                    parsed_channel.type, parsed_channel.meta.line
+                )
             channel = Channel(
                 parsed_channel.name,
                 type,
@@ -200,7 +201,9 @@ class RtIpcParser(object):
         for parsed_channel in parsed_group.s2c:
             type = structs.get(parsed_channel.type)
             if type is None:
-                raise StructNotFound(parsed_channel.type, parsed_channel.meta.line)
+                raise StructNotFoundException(
+                    parsed_channel.type, parsed_channel.meta.line
+                )
             channel = Channel(
                 parsed_channel.name,
                 type,
