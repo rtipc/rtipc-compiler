@@ -33,7 +33,7 @@ def main():
 
     match ns.lang:
         case "c":
-            c_generate(ns.output, "exmpl", ns.schema.stem, groups, structs)
+            c_generate(ns.output, "", ns.schema.stem, groups, structs)
         case "rust":
             gen = RustGenerator()
         case _:

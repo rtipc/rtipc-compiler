@@ -135,13 +135,13 @@ def gen_header(
 
             def start_struct():
                 if struct.is_union:
-                    form.put("union")
+                    form.put("typedef union")
                 else:
-                    form.put("struct")
+                    form.put("typedef struct")
                 form.end_line(" " + struct_name(prefix, struct.name) + " {", 1)
 
             def end_struct():
-                form.start_line("};", -1)
+                form.start_line("} " + struct_name(prefix, struct.name) + "_t;", -1)
                 form.blank_line()
 
             start_struct()
@@ -240,10 +240,10 @@ def gen_source(
             form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
             form.put(" .msg_size = sizeof(" + info_name + "),")
             if channel.eventfd:
-                form.end_line(" .eventfd = 1 },")
+                form.put(" .eventfd = 1,")
             else:
-                form.end_line(" .eventfd = 0 },")
-
+                form.put(" .eventfd = 0,")
+            form.end_line(" .info = " + info_name + "},")
         def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
             form.end_line(
                 "static const ri_channel_attr_t "
