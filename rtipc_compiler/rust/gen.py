@@ -2,7 +2,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from protocol import Channel, Field, Group, Primitive, Struct
-from utils import Formatter, Indent, IndentStyle, NameStyle, convert_name
+from utils import (
+    EndpointRole,
+    Formatter,
+    Indent,
+    IndentStyle,
+    NameStyle,
+    cat_name,
+    convert_name,
+)
 
 
 def primitive_name(primitive: Primitive) -> str:
@@ -43,95 +51,149 @@ def variable_name(name: str) -> str:
     return convert_name(name, NameStyle.SNAKECASE)
 
 
-def struct_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, name], NameStyle.SNAKECASE)
+def struct_name(name: str) -> str:
+    return cat_name([name], NameStyle.SNAKECASE)
 
 
-def struct_info_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
+def struct_info_name(name: str) -> str:
+    return cat_name([name, "info"], NameStyle.CONSTANTCASE)
 
 
-def group_info_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, "group", name, "info"], NameStyle.SNAKECASE)
+def group_info_name(name: str) -> str:
+    return cat_name([name, "info"], NameStyle.CONSTANTCASE)
 
 
-def group_attr_name(prefix: str, role: str, name: str) -> str:
-    return cat_name([prefix, role, "group", name], NameStyle.SNAKECASE)
+def group_attr_fn_name(role: EndpointRole, name: str) -> str:
+    strrole = "client" if role == EndpointRole.CLIENT else "server"
+    return cat_name([strrole, "group", name, "create"], NameStyle.SNAKECASE)
 
 
 def direction_channels_name(name: str, direction: str) -> str:
     return cat_name(["group", name, direction, "channels"], NameStyle.SNAKECASE)
 
 
-@dataclass
-class RustOption:
-    filename: str
-    outPath: str
+def gen_source(
+    form: Formatter,
+    groups: list[Group],
+    structs: list[Struct],
+):
+    def gen_info(name: str, info: bytes):
+        def gen_values():
+            form.break_line(hex(info[0]) + ",")
+            for c in info[1:-1]:
+                form.put(hex(c) + ",", True)
+            form.put(hex(info[-1]) + ",", True)
 
+        if (info is None) or (info == ""):
+            return ""
+        form.put("pub const " + name + ": &[u8] = &[")
+        gen_values()
+        form.start_line("];")
+        form.blank_line()
 
-class RustGenerator(object):
-    def __init__(self):
-        self.indent = Indent(IndentStyle.SPACES, 4)
-        self.variableStyle = NameStyle.SNAKECASE
-        self.structStyle = NameStyle.CAMELCASE
-
-    def variableName(self, name: str) -> str:
-        return convert_name(name, self.variableStyle)
-
-    def structName(self, name: str) -> str:
-        return convert_name(name, self.structStyle)
-
-    def addLine(self, line: str):
-        self.content = self.content + str(self.indent) + line + "\n"
-
-    def generate(self, structs: list[Struct]):
-        self.content = ""
+    def gen_infos():
         for struct in structs:
-            self.addStruct(struct)
-            self.addLine("")
-        self.content = self.content + file_end
+            name = struct_info_name(struct.name)
+            gen_info(name, struct.info)
 
-    def addField(self, field: Field):
-        line = "pub " + self.variableName(field.name) + ": "
-        if isinstance(field.type, Primitive):
-            type = primitiveName(field.type)
-        elif isinstance(field.type, Struct):
-            type = self.structName(field.type.name)
-        else:
-            raise RuntimeError("unsupported field type: " + str(field))
+        for group in groups:
+            name = group_info_name(group.name)
+            gen_info(name, group.info)
 
-        if field.length > 1:
-            line = line + "[" + type + "; " + str(field.length) + "]"
-        else:
-            line = line + type
-        line = line + ","
-        self.addLine(line)
+    def gen_struct(struct: Struct):
+        def gen_field(field: Field):
+            form.start_line("pub " + variable_name(field.name) + ": ")
+            type = ""
+            if isinstance(field.type, Primitive):
+                type = primitive_name(field.type)
+            elif isinstance(field.type, Struct):
+                type = struct_name(field.type.name)
+            else:
+                raise RuntimeError("unsupported field type: " + str(field))
 
-    def beginStruct(self, struct: Struct):
-        self.addLine("#[repr(C)]")
-        self.addLine("#[derive(Copy, Clone)]")
-        line = "pub "
-        if struct.is_union:
-            line = line + "union"
-        else:
-            line = line + "struct"
-        line = line + " " + self.structName(struct.name) + " {"
-        self.addLine(line)
-        self.indent.increase()
+            if field.length > 1:
+                form.put("[" + type + "; " + str(field.length) + "]")
+            else:
+                form.put(type)
+            form.end_line(",")
 
-    def endStruct(self):
-        self.indent.decrease()
-        self.addLine("}")
+        def start_struct(struct: Struct):
+            form.add_line("#[repr(C)]")
+            form.add_line("#[derive(Copy, Clone)]")
+            form.start_line("pub ")
+            if struct.is_union:
+                form.put("union")
+            else:
+                form.put("struct")
+            form.end_line(" " + struct_name(struct.name) + " {", 1)
 
-    def addStruct(self, struct: Struct):
-        self.beginStruct(struct)
+        def end_struct():
+            form.start_line("}", -1)
+            form.blank_line()
+
+        start_struct(struct)
         for field in struct.fields:
-            self.addField(field)
-        self.endStruct()
+            gen_field(field)
+        end_struct()
 
-    def write(self, path: Path, name: str, structs: list[Struct]):
-        self.generate(structs)
+    def gen_group_attr(group: Group, role: EndpointRole):
+        def gen_channel_attr(channel: Channel):
+            eventfd = "true" if channel.eventfd else "false"
+            form.end_line("ChannelAttr {", 1)
+            form.add_line("additional_messages: " + str(channel.add_msgs) + ",")
+            form.add_line(
+                "message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<"
+                + str(channel.type.name)
+                + ">()) },"
+            )
+            form.add_line("eventfd: " + eventfd + ",")
+            form.add_line("info: " + struct_info_name(channel.type.name) + ".to_vec(),")
+            form.add_line("},", -1)
 
-        file = path / (name + ".rs")
+        def gen_channel_arrays():
+            form.end_line("let c2s_channels: &[ChannelAttr] = &[", 1)
 
-        file.write_text(self.content)
+            for channel in group.c2s:
+                gen_channel_attr(channel)
+
+            form.add_line("];", -1)
+            form.blank_line()
+
+            form.end_line("let s2c_channels: &[ChannelAttr] = &[", 1)
+            for channel in group.s2c:
+                gen_channel_attr(channel)
+            form.add_line("];", -1)
+
+        form.end_line(
+            "pub fn " + group_attr_fn_name(role, group.name) + "() -> GroupAttr {", 1
+        )
+        gen_channel_arrays()
+        form.blank_line()
+        form.end_line("GroupAttr {", 1)
+        if role == EndpointRole.CLIENT:
+            form.add_line("producers: c2s_channels.to_vec(),")
+            form.add_line("consumers: s2c_channels.to_vec(),")
+        else:
+            form.add_line("producers: c2s_channels.to_vec(),")
+            form.add_line("consumers: s2c_channels.to_vec(),")
+        form.add_line("info: " + group_info_name(group.name) + ".to_vec(),")
+        form.add_line("}", -1)
+        form.add_line("}", -1)
+
+    gen_infos()
+    for struct in structs:
+        gen_struct(struct)
+    for group in groups:
+        gen_group_attr(group, EndpointRole.CLIENT)
+        gen_group_attr(group, EndpointRole.SERVER)
+
+
+def generate(path: Path, name: str, groups: list[Group], structs: list[Struct]):
+    indent = Indent(IndentStyle.SPACES, 4)
+    form = Formatter(indent, max_width=98)
+
+    gen_source(form, groups, structs)
+
+    file = path / (name + ".rs")
+
+    file.write_text(form.take())

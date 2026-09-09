@@ -1,13 +1,15 @@
-from enum import Enum
 from pathlib import Path
 
 from protocol import Channel, Field, Group, Primitive, Struct
-from utils import Formatter, Indent, IndentStyle, NameStyle, cat_name, convert_name
-
-
-class EndpointRole(Enum):
-    CLIENT = (1,)
-    SERVER = 2
+from utils import (
+    EndpointRole,
+    Formatter,
+    Indent,
+    IndentStyle,
+    NameStyle,
+    cat_name,
+    convert_name,
+)
 
 
 def primitive_name(primitive: Primitive) -> str:
@@ -244,6 +246,7 @@ def gen_source(
             else:
                 form.put(" .eventfd = 0,")
             form.end_line(" .info = " + info_name + "},")
+
         def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
             form.end_line(
                 "static const ri_channel_attr_t "

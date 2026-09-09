@@ -2,6 +2,11 @@ import re
 from enum import Enum
 
 
+class EndpointRole(Enum):
+    CLIENT = (1,)
+    SERVER = 2
+
+
 class IndentStyle(Enum):
     SPACES = " "
     TABS = "\t"
@@ -63,48 +68,54 @@ class Formatter:
         self.line = ""
         self.max_width = max_width
         self.space_per_tabs = 4
-        self.spaces_after_break = 10
+        self.spaces_after_break = 4
 
-    def line_break(self):
+    def new_line(self):
         if self.line != "":
             self.out += str(self.indent) + self.line + "\n"
             self.line = ""
 
     def start_line(self, text: str, indent_move: int = 0):
-        self.line_break()
+        self.new_line()
         self.indent.move(indent_move)
         self.line += text
 
     def add_line(self, text: str, indent_move: int = 0):
-        self.line_break()
+        self.new_line()
         self.indent.move(indent_move)
         self.end_line(text)
 
-    def put(self, text: str):
+    def break_line(self, text: str):
+        self.new_line()
+        self.line = " " * self.spaces_after_break + text
+
+    def put(self, text: str, add_space: bool = False):
         if (text is None) or (text == ""):
             return
 
         if (self.max_width > 0) and (
             self.indent.to_spaces() + len(self.line) + len(text) > self.max_width
         ):
-            self.line_break()
-            self.line = " " * self.spaces_after_break
-        self.line += text
+            self.break_line(text)
+        else:
+            if add_space:
+                text = " " + text
+            self.line += text
 
     def end_line(self, text: str, indent_move: int = 0):
         self.put(text)
-        self.line_break()
+        self.new_line()
         self.indent.move(indent_move)
 
     def blank_line(self, n: int = 1):
-        self.line_break()
+        self.new_line()
         self.out += "\n" * n
 
     def move_indent(self, n: int):
         self.indent.move(n)
 
     def take(self) -> str:
-        self.line_break()
+        self.new_line()
         out = self.out
         self.out = ""
         return out
