@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from pathlib import Path
 
 from protocol import Channel, Field, Group, Primitive, Struct
@@ -52,7 +51,7 @@ def variable_name(name: str) -> str:
 
 
 def struct_name(name: str) -> str:
-    return cat_name([name], NameStyle.SNAKECASE)
+    return cat_name([name], NameStyle.PASCALCASE)
 
 
 def struct_info_name(name: str) -> str:
@@ -109,7 +108,7 @@ def gen_source(
             elif isinstance(field.type, Struct):
                 type = struct_name(field.type.name)
             else:
-                raise RuntimeError("unsupported field type: " + str(field))
+                raise TypeError("unsupported field type: " + str(field))
 
             if field.length > 1:
                 form.put("[" + type + "; " + str(field.length) + "]")
@@ -119,7 +118,7 @@ def gen_source(
 
         def start_struct(struct: Struct):
             form.add_line("#[repr(C)]")
-            form.add_line("#[derive(Copy, Clone)]")
+            form.add_line("#[derive(Copy, Clone, Debug)]")
             form.start_line("pub ")
             if struct.is_union:
                 form.put("union")
@@ -131,10 +130,45 @@ def gen_source(
             form.start_line("}", -1)
             form.blank_line()
 
+        def gen_debug():
+            def gen_debug_field(field: Field):
+                if field.length == 1:
+                    form.add_line(
+                        'writeln!(f, "'
+                        + field.name
+                        + ':  {}", self.'
+                        + variable_name(field.name)
+                        + ")?;"
+                    )
+                else:
+                    form.end_line(
+                        "for (i, v) in self."
+                        + variable_name(field.name)
+                        + ".iter().enumerate() {",
+                        1,
+                    )
+                    form.end_line(
+                        'writeln!(f, "\\t'
+                        + variable_name(field.name)
+                        + '[{}]: {}", i, v)?;'
+                    )
+                    form.add_line("}", -1)
+
+            form.end_line("impl fmt::Display for " + struct_name(struct.name) + " {", 1)
+            form.end_line("fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {", 1)
+
+            for field in struct.fields:
+                gen_debug_field(field)
+            form.end_line("Ok(())", -1)
+            form.end_line("}", -1)
+            form.end_line("}")
+            form.blank_line()
+
         start_struct(struct)
         for field in struct.fields:
             gen_field(field)
         end_struct()
+        gen_debug()
 
     def gen_group_attr(group: Group, role: EndpointRole):
         def gen_channel_attr(channel: Channel):
@@ -143,7 +177,7 @@ def gen_source(
             form.add_line("additional_messages: " + str(channel.add_msgs) + ",")
             form.add_line(
                 "message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<"
-                + str(channel.type.name)
+                + struct_name(channel.type.name)
                 + ">()) },"
             )
             form.add_line("eventfd: " + eventfd + ",")
@@ -180,6 +214,10 @@ def gen_source(
         form.add_line("}", -1)
         form.add_line("}", -1)
 
+    form.add_line("use std::num::NonZeroUsize;")
+    form.add_line("use std::fmt;")
+    form.add_line("use rtipc::{ChannelAttr, GroupAttr};")
+    form.blank_line(2)
     gen_infos()
     for struct in structs:
         gen_struct(struct)
