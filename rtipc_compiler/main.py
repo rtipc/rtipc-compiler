@@ -1,13 +1,15 @@
-from argparse import ArgumentParser, FileType
-from parser import RtIpcParser
-from c.gen import generate as c_generate
-from rust.gen import generate as rust_generate
+from argparse import ArgumentParser
 from pathlib import Path
-from info import add_info, dump_group_info
+
+from c.gen import generate as c_generate
+from info import add_info
+from parser import RtIpcParser
+from python.gen import generate as python_generate
+from rust.gen import generate as rust_generate
 
 
 def main():
-    langs = ["c", "rust", "cpp"]
+    langs = ["c", "rust", "python"]
     argparser = ArgumentParser(
         prog="rtipcc",
         description="Compile Schema and generate code",
@@ -35,7 +37,9 @@ def main():
         case "c":
             c_generate(ns.output, "", ns.schema.stem, groups, structs)
         case "rust":
-            gen = rust_generate(ns.output, ns.schema.stem, groups, structs)
+            rust_generate(ns.output, ns.schema.stem, groups, structs)
+        case "python":
+            python_generate(ns.output, ns.schema.stem, groups, structs)
         case _:
             raise RuntimeError("language " + ns.lang + " not supported")
 

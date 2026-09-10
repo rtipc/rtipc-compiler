@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum
 
-
 PRIMITIVE_SIZE_MASK = 0x07
 PRIMITIVE_SIZE_BOOLEAN = 0x00
 PRIMITIVE_SIZE_8 = 0x01

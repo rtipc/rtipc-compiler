@@ -85,6 +85,7 @@ def gen_source(
 
         if (info is None) or (info == ""):
             return ""
+        form.add_line("#[allow(dead_code)]")
         form.put("pub const " + name + ": &[u8] = &[")
         gen_values()
         form.start_line("];")
