@@ -255,7 +255,7 @@ def gen_source(
         form.end_line("};")
         form.blank_line()
 
-        form.end_line("const ri_info_t " + name + " = { ", 1)
+        form.end_line("const ri_info_t " + name + " = {", 1)
         form.end_line(".data = " + data_name() + ",")
         form.end_line(".size = sizeof(" + data_name() + ")", -1)
         form.end_line("};")
@@ -292,7 +292,7 @@ def gen_source(
                 "static const ri_channel_attr_t "
                 + direction_channels_name(group.name, direction)
                 + "[]"
-                " = { ",
+                " = {",
                 1,
             )
             for channel in channels:
@@ -324,7 +324,7 @@ def gen_source(
                 form.add_line("return NULL;")
                 form.add_line("}", -1)
                 form.blank_line()
-                form.start_line(
+                form.add_line(
                     "const ri_channel_attr_t *ecpected_attr = &"
                     + attr_name
                     + ".consumers["
@@ -359,7 +359,7 @@ def gen_source(
                 form.add_line("return NULL;")
                 form.add_line("}", -1)
                 form.blank_line()
-                form.start_line(
+                form.add_line(
                     "const ri_channel_attr_t *ecpected_attr = &"
                     + attr_name
                     + ".producers["
