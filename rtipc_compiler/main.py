@@ -24,6 +24,9 @@ def main():
     argparser.add_argument(
         "-l", "--lang", choices=langs, required=True, help="output programming language"
     )
+    argparser.add_argument(
+        "--namespace", required=False, help="namespace/prefix for generated code"
+    )
     argparser.add_argument("-o", "--output", type=Path, required=True)
     argparser.add_argument("schema", type=Path, help="RTIPC schema file")
 
@@ -35,7 +38,7 @@ def main():
 
     match ns.lang:
         case "c":
-            c_generate(ns.output, "", ns.schema.stem, groups, structs)
+            c_generate(ns.output, ns.namespace, ns.schema.stem, groups, structs)
         case "rust":
             rust_generate(ns.output, ns.schema.stem, groups, structs)
         case "python":

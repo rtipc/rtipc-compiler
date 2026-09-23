@@ -167,7 +167,7 @@ def gen_source(
     form.blank_line()
     form.add_line("from pyrtipc import ChannelAttr, GroupAttr")
     form.blank_line()
-    
+
     gen_infos()
     for struct in structs:
         gen_struct(struct)

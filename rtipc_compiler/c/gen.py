@@ -81,8 +81,16 @@ def source_start(form: Formatter, includes: list[str]):
     form.blank_line(2)
 
 
-def variable_name(name: str) -> str:
+def field_name(name: str) -> str:
     return convert_name(name, NameStyle.SNAKECASE)
+
+
+def function_acquire_name(
+    prefix: str, role: str, group_name: str, channel_name: str
+) -> str:
+    return cat_name(
+        [prefix, role, group_name, "acquire", channel_name], NameStyle.SNAKECASE
+    )
 
 
 def struct_name(prefix: str, name: str) -> str:
@@ -90,15 +98,16 @@ def struct_name(prefix: str, name: str) -> str:
 
 
 def struct_info_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
+    return cat_name([prefix, "channel", name, "info"], NameStyle.SNAKECASE)
 
 
 def group_info_name(prefix: str, name: str) -> str:
-    return cat_name([prefix, name, "info"], NameStyle.SNAKECASE)
+    return cat_name([prefix, "group", name, "info"], NameStyle.SNAKECASE)
 
 
-def group_attr_name(prefix: str, role: str, name: str) -> str:
-    return cat_name([prefix, role, "group", name], NameStyle.SNAKECASE)
+def group_attr_name(prefix: str, role: EndpointRole, name: str) -> str:
+    strrole = "client" if role == EndpointRole.CLIENT else "server"
+    return cat_name([prefix, strrole, "group", name], NameStyle.SNAKECASE)
 
 
 def direction_channels_name(name: str, direction: str) -> str:
@@ -113,6 +122,15 @@ def consumer_channels_name(role: EndpointRole, name: str) -> str:
 def producer_channels_name(role: EndpointRole, name: str) -> str:
     direction = "c2s" if role == EndpointRole.CLIENT else "s2c"
     return direction_channels_name(name, direction)
+
+
+def acquire_function_name(
+    prefix: str, role: EndpointRole, group_name: str, channel_name: str
+) -> str:
+    strrole = "client" if role == EndpointRole.CLIENT else "server"
+    return cat_name(
+        [prefix, strrole, group_name, "acquire", channel_name], NameStyle.SNAKECASE
+    )
 
 
 def gen_header(
@@ -130,7 +148,7 @@ def gen_header(
                         form.put("struct " + struct_name(prefix, field.type.name))
                 else:
                     raise TypeError("unsupported field type: " + str(field))
-                form.put(" " + variable_name(field.name))
+                form.put(" " + field_name(field.name))
                 if field.length > 1:
                     form.put("[" + str(field.length) + "]")
                 form.end_line(";")
@@ -169,10 +187,32 @@ def gen_header(
 
     def gen_groups_attrs():
         def gen_group_attr(group: Group, role: EndpointRole):
-            strrole = "client" if role == EndpointRole.CLIENT else "server"
-            name = group_attr_name(prefix, strrole, group.name)
+            def gen_channel_acquire_consumer(channel: Channel, index: int):
+                func_name = acquire_function_name(
+                    prefix, role, group.name, channel.name
+                )
+                form.add_line("ri_consumer_t* " + func_name + "(ri_group_t *group);")
+
+            def gen_channel_acquire_producer(channel: Channel, index: int):
+                func_name = acquire_function_name(
+                    prefix, role, group.name, channel.name
+                )
+                form.add_line("ri_producer_t* " + func_name + "(ri_group_t *group);")
+
+            name = group_attr_name(prefix, role, group.name)
             form.start_line("extern const ri_group_attr_t ")
             form.end_line(name + ";")
+
+            if role == EndpointRole.CLIENT:
+                for i, channel in enumerate(group.s2c):
+                    gen_channel_acquire_consumer(channel, i)
+                for i, channel in enumerate(group.c2s):
+                    gen_channel_acquire_producer(channel, i)
+            else:
+                for i, channel in enumerate(group.c2s):
+                    gen_channel_acquire_consumer(channel, i)
+                for i, channel in enumerate(group.s2c):
+                    gen_channel_acquire_producer(channel, i)
 
         for group in groups:
             gen_group_attr(group, EndpointRole.CLIENT)
@@ -268,8 +308,77 @@ def gen_source(
 
     def gen_groups_attrs():
         def gen_group_attr(group: Group, role: EndpointRole):
-            strrole = "client" if role == EndpointRole.CLIENT else "server"
-            name = group_attr_name(prefix, strrole, group.name)
+            def gen_channel_acquire_consumer(channel: Channel, index: int):
+                func_name = acquire_function_name(
+                    prefix, role, group.name, channel.name
+                )
+                attr_name = group_attr_name(prefix, role, group.name)
+                form.add_line("ri_consumer_t* " + func_name + "(ri_group_t *group)")
+                form.end_line("{", 1)
+                form.end_line(
+                    "const ri_channel_attr_t *remote_attr = ri_group_get_consumer_attr(group, "
+                    + str(index)
+                    + ");"
+                )
+                form.end_line("if (!remote_attr) {", 1)
+                form.add_line("return NULL;")
+                form.add_line("}", -1)
+                form.blank_line()
+                form.start_line(
+                    "const ri_channel_attr_t *ecpected_attr = &"
+                    + attr_name
+                    + ".consumers["
+                    + str(index)
+                    + "];"
+                )
+                form.end_line(
+                    "if (!ri_channel_attr_equal(ecpected_attr, remote_attr)) {", 1
+                )
+                form.end_line("return NULL;")
+                form.add_line("}", -1)
+                form.blank_line()
+                form.add_line(
+                    "return ri_group_acquire_consumer(group, " + str(index) + ");"
+                )
+                form.add_line("}", -1)
+                form.blank_line()
+
+            def gen_channel_acquire_producer(channel: Channel, index: int):
+                func_name = acquire_function_name(
+                    prefix, role, group.name, channel.name
+                )
+                attr_name = group_attr_name(prefix, role, group.name)
+                form.add_line("ri_producer_t* " + func_name + "(ri_group_t *group)")
+                form.end_line("{", 1)
+                form.end_line(
+                    "const ri_channel_attr_t *remote_attr = ri_group_get_producer_attr(group, "
+                    + str(index)
+                    + ");"
+                )
+                form.end_line("if (!remote_attr) {", 1)
+                form.add_line("return NULL;")
+                form.add_line("}", -1)
+                form.blank_line()
+                form.start_line(
+                    "const ri_channel_attr_t *ecpected_attr = &"
+                    + attr_name
+                    + ".producers["
+                    + str(index)
+                    + "];"
+                )
+                form.end_line(
+                    "if (!ri_channel_attr_equal(ecpected_attr, remote_attr)) {", 1
+                )
+                form.end_line("return NULL;")
+                form.add_line("}", -1)
+                form.blank_line()
+                form.add_line(
+                    "return ri_group_acquire_producer(group, " + str(index) + ");"
+                )
+                form.add_line("}", -1)
+                form.blank_line()
+
+            name = group_attr_name(prefix, role, group.name)
             form.start_line("const ri_group_attr_t ")
             form.end_line(name + " = {", 1)
             form.end_line(
@@ -280,6 +389,18 @@ def gen_source(
             )
             form.end_line(".info = " + group_info_name(prefix, group.name))
             form.add_line("};", -1)
+            form.blank_line()
+
+            if role == EndpointRole.CLIENT:
+                for i, channel in enumerate(group.s2c):
+                    gen_channel_acquire_consumer(channel, i)
+                for i, channel in enumerate(group.c2s):
+                    gen_channel_acquire_producer(channel, i)
+            else:
+                for i, channel in enumerate(group.c2s):
+                    gen_channel_acquire_consumer(channel, i)
+                for i, channel in enumerate(group.s2c):
+                    gen_channel_acquire_producer(channel, i)
 
         for group in groups:
             gen_group_attr(group, EndpointRole.CLIENT)
@@ -299,6 +420,8 @@ def gen_source(
 def generate(
     path: Path, prefix: str, name: str, groups: list[Group], structs: list[Struct]
 ):
+    if prefix is None:
+        prefix = ""
     indent = Indent(IndentStyle.SPACES, 4)
     form = Formatter(indent, max_width=75)
 

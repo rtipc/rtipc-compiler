@@ -93,8 +93,10 @@ class Formatter:
         if (text is None) or (text == ""):
             return
 
-        if (self.max_width > 0) and (
-            self.indent.to_spaces() + len(self.line) + len(text) > self.max_width
+        if (
+            (self.max_width > 0)
+            and (self.line != "")
+            and (self.indent.to_spaces() + len(self.line) + len(text) > self.max_width)
         ):
             self.break_line(text)
         else:
