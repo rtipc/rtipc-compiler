@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -17,6 +18,12 @@ class NameStyle(Enum):
     CONSTANTCASE = 2
     SNAKECASE = 3
     PASCALCASE = 4
+
+
+@dataclass
+class LinePart:
+    text: str
+    add_space: bool
 
 
 class Indent:
@@ -65,44 +72,45 @@ class Formatter:
     def __init__(self, indent: Indent, max_width: int = -1):
         self.indent = indent
         self.out = ""
-        self.line = ""
+        self.line = []
         self.max_width = max_width
         self.space_per_tabs = 4
-        self.spaces_after_break = 4
 
     def new_line(self):
-        if self.line != "":
-            self.out += str(self.indent) + self.line + "\n"
-            self.line = ""
+        line = ""
+        add_space = False
+        for s in self.line:
+            if (self.max_width > 0) and (
+                self.indent.to_spaces() + len(line) + len(s.text) > self.max_width
+            ):
+                self.out += str(self.indent) + line + "\n"
+                line = s.text
+                add_space = False
+            else:
+                if s.add_space and add_space:
+                    line += " "
+                line += s.text
+
+            add_space = s.add_space
+        if line != "":
+            self.out += str(self.indent) + line + "\n"
+        self.line = []
 
     def start_line(self, text: str, indent_move: int = 0):
         self.new_line()
         self.indent.move(indent_move)
-        self.line += text
+        self.put(text)
 
     def add_line(self, text: str, indent_move: int = 0):
         self.new_line()
         self.indent.move(indent_move)
-        self.end_line(text)
-
-    def break_line(self, text: str):
+        self.put(text)
         self.new_line()
-        self.line = " " * self.spaces_after_break + text
 
     def put(self, text: str, add_space: bool = False):
         if (text is None) or (text == ""):
             return
-
-        if (
-            (self.max_width > 0)
-            and (self.line != "")
-            and (self.indent.to_spaces() + len(self.line) + len(text) > self.max_width)
-        ):
-            self.break_line(text)
-        else:
-            if add_space:
-                text = " " + text
-            self.line += text
+        self.line.append(LinePart(text, add_space))
 
     def end_line(self, text: str, indent_move: int = 0):
         self.put(text)

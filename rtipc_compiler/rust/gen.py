@@ -62,9 +62,16 @@ def group_info_name(name: str) -> str:
     return cat_name([name, "info"], NameStyle.CONSTANTCASE)
 
 
-def group_attr_fn_name(role: EndpointRole, name: str) -> str:
+def group_attr_name(role: EndpointRole, name: str) -> str:
     strrole = "client" if role == EndpointRole.CLIENT else "server"
-    return cat_name([strrole, "group", name, "create"], NameStyle.SNAKECASE)
+    return cat_name([strrole, "group", name, "create"], NameStyle.CONSTANTCASE)
+
+
+def acquire_function_name(
+    role: EndpointRole, group_name: str, channel_name: str
+) -> str:
+    strrole = "client" if role == EndpointRole.CLIENT else "server"
+    return cat_name([strrole, group_name, "acquire", channel_name], NameStyle.SNAKECASE)
 
 
 def direction_channels_name(name: str, direction: str) -> str:
@@ -78,17 +85,15 @@ def gen_source(
 ):
     def gen_info(name: str, info: bytes):
         def gen_values():
-            form.break_line(hex(info[0]) + ",")
-            for c in info[1:-1]:
+            for c in info:
                 form.put(hex(c) + ",", True)
-            form.put(hex(info[-1]) + ",", True)
 
         if (info is None) or (info == ""):
             return ""
         form.add_line("#[allow(dead_code)]")
-        form.put("pub const " + name + ": &[u8] = &[")
+        form.end_line("pub const " + name + ": &[u8] = &[", 1)
         gen_values()
-        form.start_line("];")
+        form.start_line("];", -1)
         form.blank_line()
 
     def gen_infos():
@@ -199,8 +204,69 @@ def gen_source(
                 gen_channel_attr(channel)
             form.add_line("];", -1)
 
+        def gen_channel_acquire_consumer(channel: Channel, index: int):
+            attr_name = group_attr_name(role, group.name)
+            channel_name = struct_name(channel.type.name)
+            func_name = acquire_function_name(role, group.name, channel.name)
+            form.add_line("#[allow(dead_code)]")
+            form.end_line("pub fn " + func_name + "(", 1)
+            form.end_line("group: &mut ChannelGroup,", -1)
+            form.end_line(
+                ") -> Result<Consumer<" + channel_name + ">, AcquireError> {", 1
+            )
+            form.add_line("let group_attr = group.get_attr();")
+            form.end_line("let remote_attr = group_attr", 1)
+            form.add_line(".consumers")
+            form.add_line(".get(" + str(index) + ")")
+            form.end_line(".ok_or(AcquireError::OutOfBounds)?;", -1)
+            form.blank_line()
+            form.end_line("let expect_attr = " + attr_name, 1)
+            form.add_line(".consumers")
+            form.add_line(".get(" + str(index) + ")")
+            form.end_line(".ok_or(AcquireError::OutOfBounds)?;", -1)
+            form.blank_line()
+            form.add_line("if expect_attr != remote_attr {", 1)
+            form.add_line("return Err(AcquireError::AttrMismatch);")
+            form.add_line("}", -1)
+            form.blank_line()
+            form.add_line("group.acquire_consumer(1).ok_or(AcquireError::OutOfBounds)")
+            form.add_line("}", -1)
+
+        def gen_channel_acquire_producer(channel: Channel, index: int):
+            attr_name = group_attr_name(role, group.name)
+            channel_name = struct_name(channel.type.name)
+            func_name = acquire_function_name(role, group.name, channel.name)
+            form.add_line("#[allow(dead_code)]")
+            form.end_line("pub fn " + func_name + "(", 1)
+            form.end_line("group: &mut ChannelGroup,", -1)
+            form.end_line(
+                ") -> Result<Producer<" + channel_name + ">, AcquireError> {", 1
+            )
+            form.add_line("let group_attr = group.get_attr();")
+            form.end_line("let remote_attr = group_attr", 1)
+            form.add_line(".producers")
+            form.add_line(".get(" + str(index) + ")")
+            form.end_line(".ok_or(AcquireError::OutOfBounds)?;", -1)
+            form.blank_line()
+            form.end_line("let expect_attr = " + attr_name, 1)
+            form.add_line(".producers")
+            form.add_line(".get(" + str(index) + ")")
+            form.end_line(".ok_or(AcquireError::OutOfBounds)?;", -1)
+            form.blank_line()
+
+            form.add_line("if expect_attr != remote_attr {", 1)
+            form.add_line("return Err(AcquireError::AttrMismatch);")
+            form.add_line("}", -1)
+            form.blank_line()
+            form.add_line("group.acquire_producer(1).ok_or(AcquireError::OutOfBounds)")
+            form.add_line("}", -1)
+
+        form.add_line("#[allow(dead_code)]")
         form.end_line(
-            "pub fn " + group_attr_fn_name(role, group.name) + "() -> GroupAttr {", 1
+            "pub static "
+            + group_attr_name(role, group.name)
+            + ": LazyLock<GroupAttr> = LazyLock::new(|| {",
+            1,
         )
         gen_channel_arrays()
         form.blank_line()
@@ -213,11 +279,27 @@ def gen_source(
             form.add_line("consumers: s2c_channels.to_vec(),")
         form.add_line("info: " + group_info_name(group.name) + ".to_vec(),")
         form.add_line("}", -1)
-        form.add_line("}", -1)
+        form.add_line("});", -1)
 
-    form.add_line("use std::num::NonZeroUsize;")
+        if role == EndpointRole.CLIENT:
+            for i, channel in enumerate(group.s2c):
+                gen_channel_acquire_consumer(channel, i)
+            for i, channel in enumerate(group.c2s):
+                gen_channel_acquire_producer(channel, i)
+        else:
+            for i, channel in enumerate(group.c2s):
+                gen_channel_acquire_consumer(channel, i)
+            for i, channel in enumerate(group.s2c):
+                gen_channel_acquire_producer(channel, i)
+
+    form.add_line(
+        "use rtipc::{ChannelAttr, ChannelGroup, Consumer, GroupAttr, Producer};"
+    )
+    form.add_line("use rtipc::error::*;")
     form.add_line("use std::fmt;")
-    form.add_line("use rtipc::{ChannelAttr, GroupAttr};")
+    form.add_line("use std::num::NonZeroUsize;")
+    form.add_line("use std::sync::LazyLock;")
+
     form.blank_line(2)
     gen_infos()
     for struct in structs:
