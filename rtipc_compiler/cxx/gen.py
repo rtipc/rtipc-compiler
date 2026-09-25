@@ -235,13 +235,13 @@ def gen_header(
                 )
                 form.blank_line()
                 form.add_line(
-                    "const auto& expect_attr = &"
+                    "const auto& expect_attr = "
                     + attr_name
                     + ".consumers["
                     + str(index)
                     + "];"
                 )
-                form.end_line("if (!(expect_attr == &remote_attr)) {", 1)
+                form.end_line("if (!(expect_attr == remote_attr)) {", 1)
                 form.end_line('throw rtipc::Error("attribute mismatch");')
                 form.add_line("}", -1)
                 form.blank_line()
@@ -271,13 +271,13 @@ def gen_header(
                 )
                 form.blank_line()
                 form.add_line(
-                    "const auto& expect_attr = &"
+                    "const auto& expect_attr = "
                     + attr_name
                     + ".producers["
                     + str(index)
                     + "];"
                 )
-                form.end_line("if (!(expect_attr == &remote_attr)) {", 1)
+                form.end_line("if (!(expect_attr == remote_attr)) {", 1)
                 form.end_line('throw rtipc::Error("attribute mismatch");')
                 form.add_line("}", -1)
                 form.blank_line()
