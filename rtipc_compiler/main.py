@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 from c.gen import generate as c_generate
+from cxx.gen import generate as cxx_generate
 from info import add_info
 from parser import RtIpcParser
 from python.gen import generate as python_generate
@@ -9,7 +10,7 @@ from rust.gen import generate as rust_generate
 
 
 def main():
-    langs = ["c", "rust", "python"]
+    langs = ["c", "rust", "c++", "python"]
     argparser = ArgumentParser(
         prog="rtipcc",
         description="Compile Schema and generate code",
@@ -41,6 +42,8 @@ def main():
             c_generate(ns.output, ns.namespace, ns.schema.stem, groups, structs)
         case "rust":
             rust_generate(ns.output, ns.schema.stem, groups, structs)
+        case "c++":
+            cxx_generate(ns.output, ns.namespace, ns.schema.stem, groups, structs)
         case "python":
             python_generate(ns.output, ns.schema.stem, groups, structs)
         case _:

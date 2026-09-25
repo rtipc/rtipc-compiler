@@ -50,28 +50,6 @@ def header_name(name: str) -> str:
     return name + ".h"
 
 
-def header_start(form: Formatter, includes: list[str]):
-    form.add_line("#pragma once")
-    form.blank_line(2)
-    for inc in includes:
-        if inc == "":
-            form.blank_line(1)
-        else:
-            form.add_line("#include " + inc)
-    form.blank_line(2)
-    form.add_line("#ifdef __cplusplus")
-    form.add_line('extern "C" {')
-    form.add_line("#endif")
-    form.blank_line(2)
-
-
-def header_end(form: Formatter):
-    form.blank_line(2)
-    form.add_line("#ifdef __cplusplus")
-    form.add_line("}")
-    form.add_line("#endif")
-
-
 def source_start(form: Formatter, includes: list[str]):
     for inc in includes:
         if inc == "":
@@ -136,6 +114,26 @@ def acquire_function_name(
 def gen_header(
     form: Formatter, prefix: str, groups: list[Group], structs: list[Struct]
 ):
+    def header_start(includes: list[str]):
+        form.add_line("#pragma once")
+        form.blank_line(2)
+        for inc in includes:
+            if inc == "":
+                form.blank_line(1)
+            else:
+                form.add_line("#include " + inc)
+        form.blank_line(2)
+        form.add_line("#ifdef __cplusplus")
+        form.add_line('extern "C" {')
+        form.add_line("#endif")
+        form.blank_line(2)
+
+    def header_end():
+        form.blank_line(2)
+        form.add_line("#ifdef __cplusplus")
+        form.add_line("}")
+        form.add_line("#endif")
+
     def gen_structs_defs():
         def gen_struct_def(struct: Struct):
             def gen_field(field: Field):
@@ -220,14 +218,14 @@ def gen_header(
             gen_group_attr(group, EndpointRole.SERVER)
             form.blank_line()
 
-    header_start(form, ["<stdint.h>", "", "<rtipc/rtipc.h>"])
+    header_start(["<stdint.h>", "", "<rtipc/rtipc.h>"])
     gen_structs_defs()
     form.blank_line(1)
     gen_infos()
     form.blank_line()
     gen_groups_attrs()
     form.blank_line()
-    header_end(form)
+    header_end()
 
 
 def gen_source(
@@ -277,15 +275,18 @@ def gen_source(
 
     def gen_groups_channels():
         def gen_channel_attr(channel: Channel):
-            info_name = struct_info_name(prefix, channel.type.name)
             form.put("{")
+            form.put(
+                " .msg_size = sizeof(" + struct_name(prefix, channel.type.name) + "),"
+            )
             form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
-            form.put(" .msg_size = sizeof(" + info_name + "),")
             if channel.eventfd:
-                form.put(" .eventfd = 1,")
+                form.put(" .eventfd = true,")
             else:
-                form.put(" .eventfd = 0,")
-            form.end_line(" .info = " + info_name + "},")
+                form.put(" .eventfd = false,")
+            form.end_line(
+                " .info = " + struct_info_name(prefix, channel.type.name) + "},"
+            )
 
         def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
             form.end_line(
@@ -325,14 +326,14 @@ def gen_source(
                 form.add_line("}", -1)
                 form.blank_line()
                 form.add_line(
-                    "const ri_channel_attr_t *ecpected_attr = &"
+                    "const ri_channel_attr_t *expect_attr = &"
                     + attr_name
                     + ".consumers["
                     + str(index)
                     + "];"
                 )
                 form.end_line(
-                    "if (!ri_channel_attr_equal(ecpected_attr, remote_attr)) {", 1
+                    "if (!ri_channel_attr_equal(expect_attr, remote_attr)) {", 1
                 )
                 form.end_line("return NULL;")
                 form.add_line("}", -1)
@@ -360,14 +361,14 @@ def gen_source(
                 form.add_line("}", -1)
                 form.blank_line()
                 form.add_line(
-                    "const ri_channel_attr_t *ecpected_attr = &"
+                    "const ri_channel_attr_t *expect_attr = &"
                     + attr_name
                     + ".producers["
                     + str(index)
                     + "];"
                 )
                 form.end_line(
-                    "if (!ri_channel_attr_equal(ecpected_attr, remote_attr)) {", 1
+                    "if (!ri_channel_attr_equal(expect_attr, remote_attr)) {", 1
                 )
                 form.end_line("return NULL;")
                 form.add_line("}", -1)
