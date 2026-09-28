@@ -179,7 +179,7 @@ def gen_source(
     def gen_group_attr(group: Group, role: EndpointRole):
         def gen_channel_attr(channel: Channel):
             eventfd = "true" if channel.eventfd else "false"
-            form.end_line("ChannelAttr {", 1)
+            form.end_line("ChannelAttributes {", 1)
             form.add_line("additional_messages: " + str(channel.add_msgs) + ",")
             form.add_line(
                 "message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<"
@@ -191,7 +191,7 @@ def gen_source(
             form.add_line("},", -1)
 
         def gen_channel_arrays():
-            form.end_line("let c2s_channels: &[ChannelAttr] = &[", 1)
+            form.end_line("let c2s_channels: &[ChannelAttributes] = &[", 1)
 
             for channel in group.c2s:
                 gen_channel_attr(channel)
@@ -199,7 +199,7 @@ def gen_source(
             form.add_line("];", -1)
             form.blank_line()
 
-            form.end_line("let s2c_channels: &[ChannelAttr] = &[", 1)
+            form.end_line("let s2c_channels: &[ChannelAttributes] = &[", 1)
             for channel in group.s2c:
                 gen_channel_attr(channel)
             form.add_line("];", -1)
@@ -265,12 +265,12 @@ def gen_source(
         form.end_line(
             "pub static "
             + group_attr_name(role, group.name)
-            + ": LazyLock<GroupAttr> = LazyLock::new(|| {",
+            + ": LazyLock<GroupAttributes> = LazyLock::new(|| {",
             1,
         )
         gen_channel_arrays()
         form.blank_line()
-        form.end_line("GroupAttr {", 1)
+        form.end_line("GroupAttributes {", 1)
         if role == EndpointRole.CLIENT:
             form.add_line("producers: c2s_channels.to_vec(),")
             form.add_line("consumers: s2c_channels.to_vec(),")
@@ -293,7 +293,7 @@ def gen_source(
                 gen_channel_acquire_producer(channel, i)
 
     form.add_line(
-        "use rtipc::{ChannelAttr, ChannelGroup, Consumer, GroupAttr, Producer};"
+        "use rtipc::{ChannelAttributes, ChannelGroup, Consumer, GroupAttributes, Producer};"
     )
     form.add_line("use rtipc::error::*;")
     form.add_line("use std::fmt;")

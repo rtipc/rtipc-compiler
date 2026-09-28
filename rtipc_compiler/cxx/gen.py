@@ -190,7 +190,7 @@ def gen_header(
     def gen_groups_channels():
         def gen_dir_channels(group_name: str, direction: str, channels: list[Channel]):
             def gen_channel_attr(channel: Channel):
-                form.put("rtipc::ChannelAttr{")
+                form.put("rtipc::ChannelAttributes{")
                 form.put(
                     " .message_size = sizeof(" + struct_name(channel.type.name) + "),"
                 )
@@ -202,7 +202,7 @@ def gen_header(
                 form.end_line(" .info = " + struct_info_name(channel.type.name) + "},")
 
             form.end_line(
-                "const std::vector<rtipc::ChannelAttr> "
+                "const std::vector<rtipc::ChannelAttributes> "
                 + direction_channels_name(group.name, direction)
                 + "{",
                 1,
@@ -292,7 +292,7 @@ def gen_header(
                 form.blank_line()
 
             name = group_attr_name(role, group.name)
-            form.start_line("const rtipc::GroupAttr ")
+            form.start_line("const rtipc::GroupAttributes ")
             form.end_line(name + " = {", 1)
             form.end_line(
                 ".consumers = " + consumer_channels_name(role, group.name) + ","

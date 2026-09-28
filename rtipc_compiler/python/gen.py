@@ -135,7 +135,7 @@ def gen_source(
         def gen_channel_attr(channel: Channel):
             eventfd = "True" if channel.eventfd else "False"
 
-            form.start_line("ChannelAttr(" + str(channel.add_msgs))
+            form.start_line("ChannelAttributes(" + str(channel.add_msgs))
             form.put(", ctypes.sizeof(" + struct_name(channel.type.name) + ")")
             form.put(", " + eventfd)
             form.end_line(", " + struct_info_name(channel.type.name) + "),")
@@ -154,7 +154,7 @@ def gen_source(
         form.blank_line()
 
     def gen_group_attr(group: Group, role: EndpointRole):
-        form.start_line(group_attr_name(role, group.name) + " = GroupAttr(")
+        form.start_line(group_attr_name(role, group.name) + " = GroupAttributes(")
         if role == EndpointRole.CLIENT:
             form.put(group_channels_name(group.name, "c2s") + ", ")
             form.put(group_channels_name(group.name, "s2c") + ", ")
@@ -165,7 +165,7 @@ def gen_source(
 
     form.add_line("import ctypes")
     form.blank_line()
-    form.add_line("from pyrtipc import ChannelAttr, GroupAttr")
+    form.add_line("from pyrtipc import ChannelAttributes, GroupAttributes")
     form.blank_line()
 
     gen_infos()
