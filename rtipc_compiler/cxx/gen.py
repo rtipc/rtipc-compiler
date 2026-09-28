@@ -223,15 +223,17 @@ def gen_header(
                 func_name = acquire_function_name(role, group.name, channel.name)
                 attr_name = group_attr_name(role, group.name)
                 form.add_line(
-                    "rtipc::Consumer<"
+                    "std::expected<rtipc::Consumer<"
                     + struct_name(channel.type.name)
-                    + "> "
+                    + ">, rtipc::Error> "
                     + func_name
                     + "(rtipc::ChannelGroup &group)"
                 )
                 form.end_line("{", 1)
                 form.end_line(
-                    "auto remote_attr = group.get_consumer_attr(" + str(index) + ");"
+                    "auto remote_attr = group.get_consumer_attributes("
+                    + str(index)
+                    + ");"
                 )
                 form.blank_line()
                 form.add_line(
@@ -242,7 +244,9 @@ def gen_header(
                     + "];"
                 )
                 form.end_line("if (!(expect_attr == remote_attr)) {", 1)
-                form.end_line('throw rtipc::Error("attribute mismatch");')
+                form.end_line(
+                    "return std::unexpected(rtipc::Error::attribute_mismatch);"
+                )
                 form.add_line("}", -1)
                 form.blank_line()
                 form.add_line(
@@ -259,15 +263,17 @@ def gen_header(
                 func_name = acquire_function_name(role, group.name, channel.name)
                 attr_name = group_attr_name(role, group.name)
                 form.add_line(
-                    "rtipc::Producer<"
+                    "std::expected<rtipc::Producer<"
                     + struct_name(channel.type.name)
-                    + "> "
+                    + ">, rtipc::Error> "
                     + func_name
                     + "(rtipc::ChannelGroup &group)"
                 )
                 form.end_line("{", 1)
                 form.end_line(
-                    "auto remote_attr = group.get_producer_attr(" + str(index) + ");"
+                    "auto remote_attr = group.get_producer_attributes("
+                    + str(index)
+                    + ");"
                 )
                 form.blank_line()
                 form.add_line(
@@ -278,7 +284,9 @@ def gen_header(
                     + "];"
                 )
                 form.end_line("if (!(expect_attr == remote_attr)) {", 1)
-                form.end_line('throw rtipc::Error("attribute mismatch");')
+                form.end_line(
+                    "return std::unexpected(rtipc::Error::attribute_mismatch);"
+                )
                 form.add_line("}", -1)
                 form.blank_line()
                 form.add_line(

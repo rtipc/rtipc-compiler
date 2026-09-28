@@ -74,8 +74,10 @@ def function_acquire_name(
 def struct_name(prefix: str, name: str) -> str:
     return cat_name([prefix, name], NameStyle.SNAKECASE)
 
+
 def struct_type_name(prefix: str, name: str) -> str:
     return cat_name([prefix, name, "t"], NameStyle.SNAKECASE)
+
 
 def struct_info_name(prefix: str, name: str) -> str:
     return cat_name([prefix, "channel", name, "info"], NameStyle.SNAKECASE)
@@ -279,7 +281,9 @@ def gen_source(
         def gen_channel_attr(channel: Channel):
             form.put("{")
             form.put(
-                " .msg_size = sizeof(" + struct_type_name(prefix, channel.type.name) + "),"
+                " .msg_size = sizeof("
+                + struct_type_name(prefix, channel.type.name)
+                + "),"
             )
             form.put(" .add_msgs = " + str(channel.add_msgs) + ",")
             if channel.eventfd:

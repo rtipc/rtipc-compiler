@@ -124,8 +124,8 @@ def gen_source(
 
         def start_struct(struct: Struct):
             form.add_line("#[repr(C)]")
-            form.add_line("#[derive(Copy, Clone, Debug)]")
-            form.start_line("pub ")
+            form.add_line("#[derive(Copy, Clone)]")
+            form.put("pub ")
             if struct.is_union:
                 form.put("union")
             else:
@@ -174,7 +174,6 @@ def gen_source(
         for field in struct.fields:
             gen_field(field)
         end_struct()
-        gen_debug()
 
     def gen_group_attr(group: Group, role: EndpointRole):
         def gen_channel_attr(channel: Channel):
