@@ -243,7 +243,7 @@ def gen_header(
                     + str(index)
                     + "];"
                 )
-                form.end_line("if (!(expect_attr == remote_attr)) {", 1)
+                form.end_line("if (expect_attr != remote_attr) {", 1)
                 form.end_line(
                     "return std::unexpected(rtipc::Error::attribute_mismatch);"
                 )
@@ -283,7 +283,7 @@ def gen_header(
                     + str(index)
                     + "];"
                 )
-                form.end_line("if (!(expect_attr == remote_attr)) {", 1)
+                form.end_line("if (expect_attr != remote_attr) {", 1)
                 form.end_line(
                     "return std::unexpected(rtipc::Error::attribute_mismatch);"
                 )

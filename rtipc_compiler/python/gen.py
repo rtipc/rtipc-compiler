@@ -77,6 +77,13 @@ def direction_channels_name(name: str, direction: str) -> str:
     return cat_name(["group", name, direction, "channels"], NameStyle.SNAKECASE)
 
 
+def acquire_function_name(
+    role: EndpointRole, group_name: str, channel_name: str
+) -> str:
+    strrole = "client" if role == EndpointRole.CLIENT else "server"
+    return cat_name([strrole, group_name, "acquire", channel_name], NameStyle.SNAKECASE)
+
+
 def gen_source(
     form: Formatter,
     groups: list[Group],
@@ -84,14 +91,16 @@ def gen_source(
 ):
     def gen_info(name: str, info: bytes):
         def gen_values():
-            for c in info[:-1]:
+            for c in info:
                 form.put(hex(c) + ",", True)
 
         if (info is None) or (info == ""):
             return ""
-        form.start_line(name + " = bytes([")
+        form.end_line(name + " = bytes(", 1)
+        form.put("[")
         gen_values()
-        form.end_line("]);")
+        form.end_line("]", -1)
+        form.add_line(")")
         form.blank_line()
 
     def gen_infos():
@@ -151,26 +160,103 @@ def gen_source(
             gen_channel_attr(channel)
 
         form.add_line("]", -1)
-        form.blank_line()
 
     def gen_group_attr(group: Group, role: EndpointRole):
-        form.start_line(group_attr_name(role, group.name) + " = GroupAttributes(")
+        def gen_channel_acquire_consumer(channel: Channel, index: int):
+            func_name = acquire_function_name(role, group.name, channel.name)
+            attr_name = group_attr_name(role, group.name)
+            form.end_line(
+                "def "
+                + func_name
+                + "(group: ChannelGroup) -> Consumer["
+                + struct_name(channel.type.name)
+                + "]:",
+                1,
+            )
+            form.add_line("group_attr = group.get_attributes()")
+            form.add_line("remote_attr = group_attr.consumers[" + str(index) + "]")
+            form.blank_line()
+            form.add_line(
+                "expect_attr = " + attr_name + ".consumers[" + str(index) + "]"
+            )
+            form.end_line("if expect_attr != remote_attr:", 1)
+            form.end_line("raise RuntimeError()", -1)
+            form.blank_line()
+            form.end_line(
+                "return group.acquire_consumer("
+                + struct_name(channel.type.name)
+                + ", "
+                + str(index)
+                + ")",
+                -1,
+            )
+
+        def gen_channel_acquire_producer(channel: Channel, index: int):
+            func_name = acquire_function_name(role, group.name, channel.name)
+            attr_name = group_attr_name(role, group.name)
+            form.end_line(
+                "def "
+                + func_name
+                + "(group: ChannelGroup) -> Producer["
+                + struct_name(channel.type.name)
+                + "]:",
+                1,
+            )
+            form.add_line("group_attr = group.get_attributes()")
+            form.add_line("remote_attr = group_attr.producers[" + str(index) + "]")
+            form.blank_line()
+            form.add_line(
+                "expect_attr = " + attr_name + ".producers[" + str(index) + "]"
+            )
+            form.end_line("if expect_attr != remote_attr:", 1)
+            form.end_line("raise RuntimeError()", -1)
+            form.blank_line()
+            form.end_line(
+                "return group.acquire_producer("
+                + struct_name(channel.type.name)
+                + ", "
+                + str(index)
+                + ")",
+                -1,
+            )
+
+        form.blank_line(2)
+        form.end_line(group_attr_name(role, group.name) + " = GroupAttributes(", 1)
         if role == EndpointRole.CLIENT:
-            form.put(group_channels_name(group.name, "c2s") + ", ")
-            form.put(group_channels_name(group.name, "s2c") + ", ")
+            form.put("consumers=" + group_channels_name(group.name, "s2c") + ", ")
+            form.put("producers=" + group_channels_name(group.name, "c2s") + ", ")
         else:
-            form.put(group_channels_name(group.name, "s2c") + ", ")
-            form.put(group_channels_name(group.name, "c2s") + ", ")
-        form.end_line(group_info_name(group.name) + ")")
+            form.put("consumers=" + group_channels_name(group.name, "c2s") + ", ")
+            form.put("producers=" + group_channels_name(group.name, "s2c") + ", ")
+        form.end_line("info=" + group_info_name(group.name), -1)
+        form.add_line(")")
+
+        if role == EndpointRole.CLIENT:
+            for i, channel in enumerate(group.s2c):
+                form.blank_line(2)
+                gen_channel_acquire_consumer(channel, i)
+            for i, channel in enumerate(group.c2s):
+                form.blank_line(2)
+                gen_channel_acquire_producer(channel, i)
+
+        if role == EndpointRole.SERVER:
+            for i, channel in enumerate(group.c2s):
+                form.blank_line(2)
+                gen_channel_acquire_consumer(channel, i)
+            for i, channel in enumerate(group.s2c):
+                form.blank_line(2)
+                gen_channel_acquire_producer(channel, i)
 
     form.add_line("import ctypes")
     form.blank_line()
     form.add_line("from pyrtipc import ChannelAttributes, GroupAttributes")
-    form.blank_line()
+    form.blank_line(2)
 
-    gen_infos()
     for struct in structs:
         gen_struct(struct)
+
+    gen_infos()
+
     for group in groups:
         gen_channel_arrays(group, "c2s")
         gen_channel_arrays(group, "s2c")
